@@ -1,6 +1,5 @@
 #include <STM32FreeRTOS.h>
 #include <ros.h>
-#include <ros/time.h>
 #include <QEC_1X_SPI.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <wiring_analog.h>
@@ -8,9 +7,9 @@
 #include "stm32f3xx_hal_dac.h"
 
 
-#define ENCODERSCALE1 0.350F/7360.0F   
-#define ENCODERSCALE2 0.293F/7560.0F
-#define ENCODERSCALE3 90.F/2140.0F 
+#define ENCODERSCALE1 0.350F/7360.0F/2.244126428F/0.9495171863F 
+#define ENCODERSCALE2 0.293F/7560.0F/2.170616483F
+#define ENCODERSCALE3 90.F/2140.0F/2.0644889F 
 
 #define ENCODERSIGN1  1
 #define ENCODERSIGN2  1
@@ -34,9 +33,9 @@ SemaphoreHandle_t xSerialSemaphore; //!Semaphore for Port Serial
     - Force retrieval from ROS 
 **/
 
-int CS4 = D6; //! CS4 -> Lateral 
-int CS5 = D9; //! CS5  -> Dorsi/Plantar Flexion
-int CS6 = D10; //! CS6 -> Flexion/Extension of the Leg
+int CS1 = D6; //! CS4 -> Lateral 
+int CS2 = D9; //! CS5  -> Dorsi/Plantar Flexion
+int CS3 = D10; //! CS6 -> Flexion/Extension of the Leg
 
 /*PinName motorX_pin = PIN_A4; //! Actually A4
 PinName motorY_pin = PA_7; //! Actually A5
@@ -45,8 +44,8 @@ PinName motorY_pin = PA_7; //! Actually A5
 //Servo motorX_servo;
 
 ros::NodeHandle nh;
-geometry_msgs::PoseStamped pose_msg; //! 6DoF
-ros::Publisher p("/FI_Pose", &pose_msg);
+geometry_msgs::PoseStamped pos_msg; //! 6DoF
+ros::Publisher p("/FI_Pose/2", &pos_msg);
 
 
 typedef enum 
@@ -55,9 +54,9 @@ typedef enum
 }axisID;
 
 
-QEC_1X motorX(CS4);
-QEC_1X motorY(CS6);
-QEC_1X motorP(CS5);
+QEC_1X motorX(CS1);
+QEC_1X motorY(CS3);
+QEC_1X motorP(CS2);
 
 void setup() {
  
@@ -121,7 +120,7 @@ void TaskStateMachine(void *pvParameters)
     (void) pvParameters;
    // analogOutputInit();
    // analogWriteResolution(8);
-   //  motorX_servo.attach(motorX_pin, 900 , 2100); 
+   // motorX_servo.attach(motorX_pin, 900 , 2100); 
 
   for(;;)
   {
@@ -132,7 +131,7 @@ void TaskStateMachine(void *pvParameters)
     //analogWrite(motorY_pin,150);
     dac_write_value(motorX_pin, 2000, 1x);
     //dac_write_value(motorY_pin, 10, 1);
-  //  motorX_servo.write(2100);*/
+    // motorX_servo.write(2100);*/
     vTaskDelay ((float) (1000 / portTICK_PERIOD_MS ) / CONTROL_FREQ ); //! Control Rate
   }
 
@@ -163,19 +162,17 @@ void FI_encBias(){ //! Set an offset to the counter for setting a new zero //! A
 
 
 void FI_pubPose(){
-  	
-  	
-  pose_msg.header.stamp=nh.now();
-  pose_msg.header.frame_id="Pedal";
-  pose_msg.pose.position.x = motorX.outDimension;
-  pose_msg.pose.position.y = motorY.outDimension;
-  pose_msg.pose.position.z = 0.0f;
-  pose_msg.pose.orientation.x = motorP.outDimension;
+  pos_msg.header.frame_id="Left_Pedal";
+  pos_msg.header.stamp=nh.now();
+  pos_msg.pose.position.x = motorX.outDimension;
+  pos_msg.pose.position.y = motorY.outDimension;
+  pos_msg.pose.position.z = 0.0f;
+  pos_msg.pose.orientation.x = motorP.outDimension;
   //pos_msg.pose.orientation.x = 0.0f;
-  pose_msg.pose.orientation.y = 0.0f;
-  pose_msg.pose.orientation.z = 0.0f;
-  pose_msg.pose.orientation.w = 1.0f;
-  p.publish(&pose_msg);
+  pos_msg.pose.orientation.y = 0.0f;
+  pos_msg.pose.orientation.z = 0.0f;
+  pos_msg.pose.orientation.w = 1.0f;
+  p.publish(&pos_msg);
   nh.spinOnce();
   }
 
