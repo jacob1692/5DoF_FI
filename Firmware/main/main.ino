@@ -46,7 +46,7 @@ PinName motorY_pin = PA_7; //! Actually A5
 
 ros::NodeHandle nh;
 geometry_msgs::PoseStamped pose_msg; //! 6DoF
-ros::Publisher p("/FI_Pose", &pose_msg);
+ros::Publisher p("/FI_Pose/1", &pose_msg);
 
 
 typedef enum 
@@ -166,7 +166,7 @@ void FI_pubPose(){
   	
   	
   pose_msg.header.stamp=nh.now();
-  pose_msg.header.frame_id="Pedal";
+  pose_msg.header.frame_id="Right_Pedal";
   pose_msg.pose.position.x = motorX.outDimension;
   pose_msg.pose.position.y = motorY.outDimension;
   pose_msg.pose.position.z = 0.0f;
