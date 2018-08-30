@@ -4,10 +4,10 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <wiring_analog.h>
 #include <PinNames.h>
-#include "stm32f3xx_hal_dac.h"
+#include <stm32f3xx_hal_dac.h>
 
 
-#define ENCODERSCALE1 0.350F/7360.0F/2.244126428F/0.9495171863F 
+#define ENCODERSCALE1 0.350F/7360.0F/2.244126428F/0.9495171863F //! 0.347 X 0.302Y
 #define ENCODERSCALE2 0.293F/7560.0F/2.170616483F
 #define ENCODERSCALE3 90.F/2140.0F/2.0644889F 
 
@@ -19,6 +19,19 @@
 
 #define COMM_FREQ 150 //! [Hz] 1000Hz
 #define CONTROL_FREQ 10000 //! [hz] 10kHz
+
+#define CURRENT_K 42.43F //! K_i Faulhaber 3890024CR [mNm/A]
+#define LINEAR_CONV_K 0.00915F //! Torque/Force
+#define PITCH_CONV_R 40.0/9.15F //! Pulley Big / Pulley Small
+
+#define ESCON_PWM_K 10.0F/4096.0F //! Amp/PWM(12 bits)
+
+#define MAX_TORQUE 250.0F //! mNm
+
+enum {
+  homing, 
+  impedance_mode
+}stateM; 
 
 SemaphoreHandle_t xSerialSemaphore; //!Semaphore for Port Serial
 
@@ -37,9 +50,13 @@ int CS1 = D6; //! CS4 -> Lateral
 int CS2 = D9; //! CS5  -> Dorsi/Plantar Flexion
 int CS3 = D10; //! CS6 -> Flexion/Extension of the Leg
 
-/*PinName motorX_pin = PIN_A4; //! Actually A4
-PinName motorY_pin = PA_7; //! Actually A5
-*/
+int motorX_pin = D3; //! 
+int motorY_pin = D4; //! D4
+int motorP_pin = D5; //! D5
+
+float springK_2 = 100.0; //! [N/m]
+float damperK_2 = 0.0F;
+
 
 //Servo motorX_servo;
 
@@ -61,7 +78,6 @@ QEC_1X motorP(CS2);
 void setup() {
  
   Serial.begin(115200);
-   
 
   while (!Serial) {
     ; 
@@ -118,23 +134,45 @@ void TaskComm(void *pvParameters)
 void TaskStateMachine(void *pvParameters)
 {
     (void) pvParameters;
-   // analogOutputInit();
-   // analogWriteResolution(8);
-   // motorX_servo.attach(motorX_pin, 900 , 2100); 
+	  analogWriteResolution(12); 
+    float forceY=0.0F;
 
   for(;;)
   {
     
     //!First step -> Get the pose of the platform.
     FI_getPose();
+    forceY=(motorY.outDimension + 0.303/2.0)*springK_2 ; //! Escon sign 
+    //forceY=-motorY.outDimension*20/0.303 - 10;
+    FI_SetForce(forceY,motorY_pin,ENCODERSIGN2);
+    analogWrite(motorX_pin,2000);
+    analogWrite(motorP_pin,4000);
     /*analogWrite(motorX_pin,150);
     //analogWrite(motorY_pin,150);
-    dac_write_value(motorX_pin, 2000, 1x);
+    
     //dac_write_value(motorY_pin, 10, 1);
     // motorX_servo.write(2100);*/
     vTaskDelay ((float) (1000 / portTICK_PERIOD_MS ) / CONTROL_FREQ ); //! Control Rate
   }
 
+}
+
+/************************ Set of functions for Force Reflection *****************************
+* FI_homing() retrieves the pose using the encoders and the IMU
+* FI_impedance() generates a bias in the encoder counter that will set the zero dimension
+*******************************************************************************************/ 
+
+void FI_SetTorque(float torque, int pin, int sign){
+
+  float escon_current = (torque*1000/CURRENT_K);
+  int escon_current_PWM = map(escon_current,-5.0,5.0,4096*0.1,4096*0.9);
+  analogWrite(pin,escon_current_PWM);
+}
+
+void FI_SetForce(float force, int pin, int sign){
+
+  float escon_torque = force*LINEAR_CONV_K;
+  FI_SetTorque(escon_torque,pin,sign);
 }
 
 
