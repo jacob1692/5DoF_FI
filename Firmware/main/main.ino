@@ -33,7 +33,7 @@
 #define CURRENT_MAX 15.0 //! A
 //#define ESCON_PWM_K 10.0F/4096.0F //! Amp/PWM(12 bits)
 
-#define MAX_TORQUE 250.0F //! [mNm]
+#define MAX_TORQUE 0.212F //! [Nm]
 
 #define PI 3.14159265359F
 
@@ -83,15 +83,15 @@ double SetpointX, SetpointY, SetpointP;
 
 
 
-double Kp_X=100, Ki_X=0, Kd_X=3;
-double Kp_Y=100, Ki_Y=0, Kd_Y=3;
-double Kp_P=150, Ki_P=1, Kd_P=3;
+double Kp_X=100, Ki_X=0, Kd_X=2;
+double Kp_Y=100, Ki_Y=0, Kd_Y=2;
+double Kp_P=500*PI/180.0F*0.001, Ki_P=0, Kd_P=0*PI/180.0F*0.001; //! Nm/rad
 
 //
 
-PID PID_X(&positionX, &forceX, &SetpointX, Kp_X, Ki_X, Kd_X,P_ON_M, DIRECT); //! On measurement
-PID PID_Y(&positionY, &forceY, &SetpointY, Kp_Y, Ki_Y, Kd_Y,P_ON_M, DIRECT);
-PID PID_P(&positionP, &torqueP,&SetpointP, Kp_P, Ki_P, Kd_P,P_ON_M, DIRECT);
+PID PID_X(&positionX, &forceX, &SetpointX, Kp_X, Ki_X, Kd_X, DIRECT); //! On measurement
+PID PID_Y(&positionY, &forceY, &SetpointY, Kp_Y, Ki_Y, Kd_Y, DIRECT);
+PID PID_P(&positionP, &torqueP,&SetpointP, Kp_P, Ki_P, Kd_P, DIRECT);
 
 //Servo motorX_servo;
 
@@ -153,7 +153,7 @@ void TaskStateMachine(void *pvParameters)
 
     PID_X.SetOutputLimits(-25.0,25.0); //! N
     PID_Y.SetOutputLimits(-25.0,25.0); //! N
-    PID_P.SetOutputLimits(-0.300,0.300); //! Nm
+    PID_P.SetOutputLimits(-0.927,0.927); //! Nm
     PID_X.SetSampleTime(1000); //! [us]
     PID_Y.SetSampleTime(1000); //! [us]
     PID_P.SetSampleTime(1000); //! [us]
@@ -167,9 +167,9 @@ void TaskStateMachine(void *pvParameters)
     
     //!First step -> Get the pose of the platform.
     FI_getPose();
-    FI_Force_Imp_Update();
+    //FI_Force_Imp_Update();
 
-   // FI_GOTO(X_LIMIT/2.0,Y_LIMIT/2.0,0.0);
+    FI_GOTO(0.15,0.15,0.0);
 
     FI_SetForce(forceX,motorX_pin,1);
     FI_SetForce(forceY,motorY_pin,1);
@@ -225,7 +225,7 @@ void FI_getPose(){ //! Get the pose of the platform using the values of the enco
    motorP.QEC_getPose(); //! Motor for motion in Pitch
    positionX=motorX.outDimension; 
    positionY=motorY.outDimension; 
-   positionP=motorP.outDimension;
+   positionP=motorP.outDimension; //! Rad/s
 }
 
 void FI_encBias(){ //! Set an offset to the counter for setting a new zero //! Alternatively clear counters? 0X20 SPI
