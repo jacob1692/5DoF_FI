@@ -2,6 +2,7 @@
 #include <ros.h>
 #include <QEC_1X_SPI.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/WrenchStamped.h>
 #include <wiring_analog.h>
 #include <PinNames.h>
 #include <stm32f3xx_hal_dac.h>
@@ -85,7 +86,7 @@ double SetpointX, SetpointY, SetpointP;
 
 double Kp_X=100, Ki_X=0, Kd_X=2;
 double Kp_Y=100, Ki_Y=0, Kd_Y=2;
-double Kp_P=500*PI/180.0F*0.001, Ki_P=0, Kd_P=0*PI/180.0F*0.001; //! Nm/rad
+double Kp_P=2000*PI/180.0F*0.001, Ki_P=0, Kd_P=0*PI/180.0F*0.001; //! Nm/rad
 
 //
 
@@ -96,8 +97,10 @@ PID PID_P(&positionP, &torqueP,&SetpointP, Kp_P, Ki_P, Kd_P, DIRECT);
 //Servo motorX_servo;
 
 ros::NodeHandle nh;
-geometry_msgs::PoseStamped pos_msg; //! 6DoF
-ros::Publisher p("/FI_Pose/2", &pos_msg);
+geometry_msgs::PoseStamped pose_msg; //! 6DoF
+geometry_msgs::WrenchStamped wrench_msg;
+ros::Publisher p_pose("/FI_Pose/2", &pose_msg);
+ros::Publisher p_wrench("/FI_Wrench/2", &wrench_msg);
 
 
 typedef enum 
@@ -146,7 +149,8 @@ void TaskStateMachine(void *pvParameters)
 {
     (void) pvParameters;
     nh.initNode();
-    nh.advertise(p);
+    nh.advertise(p_pose);
+    nh.advertise(p_wrench);
 	  analogWriteResolution(12); 
     
     //! Automatic initializations of PID's
@@ -168,14 +172,18 @@ void TaskStateMachine(void *pvParameters)
     //!First step -> Get the pose of the platform.
     FI_getPose();
     //FI_Force_Imp_Update();
+    SetpointX=X_LIMIT/2.0; 
+    SetpointY=Y_LIMIT/2.0; SetpointP=0.0;
 
-    FI_GOTO(0.15,0.15,0.0);
+    FI_GOTO(SetpointX,SetpointY,SetpointP);
 
     FI_SetForce(forceX,motorX_pin,1);
     FI_SetForce(forceY,motorY_pin,1);
     FI_SetTorque(torqueP,motorP_pin,1,PITCH_CONV_R); 
 
     FI_pubPose(); //! publish pose in ROS
+    FI_pubWrench();
+    nh.spinOnce();
     vTaskDelay ((float) (1000 / portTICK_PERIOD_MS ) / CONTROL_FREQ ); //! Control Rate
   }
 
@@ -208,7 +216,6 @@ void FI_Force_Imp_Update(){
 }
 
 void FI_GOTO(float x, float y, float p){
-  SetpointX=x; SetpointY=y; SetpointP=p;
   PID_X.Compute();
   PID_Y.Compute();
   PID_P.Compute();
@@ -240,18 +247,29 @@ void FI_encBias(){ //! Set an offset to the counter for setting a new zero //! A
 
 
 void FI_pubPose(){
-  pos_msg.header.frame_id="Left_Pedal";
-  pos_msg.header.stamp=nh.now();
-  pos_msg.pose.position.x = motorX.outDimension;
-  pos_msg.pose.position.y = motorY.outDimension;
-  pos_msg.pose.position.z = 0.0f;
-  pos_msg.pose.orientation.x = motorP.outDimension;
-  //pos_msg.pose.orientation.x = 0.0f;
-  pos_msg.pose.orientation.y = 0.0f;
-  pos_msg.pose.orientation.z = 0.0f;
-  pos_msg.pose.orientation.w = 1.0f;
-  p.publish(&pos_msg);
-  nh.spinOnce();
+  pose_msg.header.frame_id="Left_Pedal";
+  pose_msg.header.stamp=nh.now();
+  pose_msg.pose.position.x = motorX.outDimension;
+  pose_msg.pose.position.y = motorY.outDimension;
+  pose_msg.pose.position.z = 0.0f;
+  pose_msg.pose.orientation.x = motorP.outDimension;
+  //pose_msg.pose.orientation.x = 0.0f;
+  pose_msg.pose.orientation.y = 0.0f;
+  pose_msg.pose.orientation.z = 0.0f;
+  pose_msg.pose.orientation.w = 1.0f;
+  p_pose.publish(&pose_msg);
+  }
+
+void FI_pubWrench(){
+  wrench_msg.header.frame_id="Left_Pedal";
+  wrench_msg.header.stamp=nh.now();
+  wrench_msg.wrench.force.x = forceX;
+  wrench_msg.wrench.force.y = forceY;
+  wrench_msg.wrench.force.z = 0.0;
+  wrench_msg.wrench.torque.x = torqueP;
+  wrench_msg.wrench.torque.y = 0.0f;
+  wrench_msg.wrench.torque.z = 0.0f;
+  p_wrench.publish(&wrench_msg);
   }
 
 
