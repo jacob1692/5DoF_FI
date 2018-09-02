@@ -3,17 +3,22 @@
 #include <QEC_1X_SPI.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/WrenchStamped.h>
+#include <geometry_msgs/TwistStamped.h>
 #include <wiring_analog.h>
 #include <PinNames.h>
 #include <stm32f3xx_hal_dac.h>
 
 #include <PID_v1.h>
 
+//! TO DO: change orientation from euler to quaternion to deliver a logical ROS messsage!!
 
-//! WORKSPACE AND FOOTPRINT FOR ****LEFT*** PLATFORM
-#define X_LIMIT 0.351161450148F //! [m] 
-#define Y_LIMIT 0.303287059069F //! [m]
+//************* Workspace **** Left Platform***********************/ 
+
+#define X_LIMIT 0.355F //! [m] 
+#define Y_LIMIT 0.303F //! [m]
 #define P_LIMIT 90.0F //! [deg]
+
+/******************************************************************/
 
 #define ENCODERSCALE1 X_LIMIT/15735.0F 
 #define ENCODERSCALE2 Y_LIMIT/16986.0F
@@ -21,7 +26,7 @@
 
 #define ENCODERSIGN1  -1
 #define ENCODERSIGN2  -1
-#define ENCODERSIGN3 -1
+#define ENCODERSIGN3  -1
 
 #define STACK_SIZE 512
 
@@ -29,21 +34,24 @@
 #define CONTROL_FREQ 10000 //! [hz] 10kHz
 
 #define CURRENT_K 42.43F //! K_i Faulhaber 3890024CR [mNm/A]
-#define LINEAR_CONV_K 0.00915F //! Torque/Force
-#define PITCH_CONV_R 40.0/9.15F //! Pulley Big / Pulley Small
+#define BELT_PULLEY_R 0.00915F //! Torque/Force
+#define PITCH_REDUCTION_R 40.0/9.15F //! Pulley Big [mm] / Pulley Belt [mm]
 #define CURRENT_MAX 15.0 //! A
-//#define ESCON_PWM_K 10.0F/4096.0F //! Amp/PWM(12 bits)
 
 #define MAX_TORQUE 0.212F //! [Nm]
+#define MAX_RPM 6000 
+
 
 #define PI 3.14159265359F
 
-enum {
-  homing, 
-  impedance_mode
-}stateM; 
+#define VEL_LIMIT_X MAX_RPM*2*PI*BELT_PULLEY_R/60   //! 5.75 [m/s] 
+#define VEL_LIMIT_Y VEL_LIMIT_X
+#define ANG_VEL_LIMIT_P MAX_RPM*2*PI/60/PITCH_REDUCTION_R //! 143.78 [rad/s] 
 
-  void TaskComm(void *pvParameters );
+#define POSE_PID_SAMPLE_R 1000 //! [us]
+#define VELOCITY_PID_SAMPLE_R 100 //!  [us]
+
+//  void TaskComm(void *pvParameters );
   void TaskStateMachine (void *pvParameters);
 
 /**
@@ -60,47 +68,82 @@ double torqueP=0.0F;
 
 double positionX; 
 double positionY; 
-double positionP; 
+double orientationP; 
+
+double velocityX, velocityY, angVelocityP;
+
+double positionX_old; 
+double positionY_old; 
+double orientationP_old;
 
 int CS1 = D6; //! CS4 -> Lateral 
 int CS2 = D9; //! CS5  -> Dorsi/Plantar Flexion
 int CS3 = D10; //! CS6 -> Flexion/Extension of the Leg
 
+int limitSwitchX = D8; // VERIFY THIS NUMBER!!!
+int limitSwitchY = D7;
+
 int motorX_pin = D3; //! 
 int motorY_pin = D4; //! D4 
 int motorP_pin = A3; //! A3: DAC || D%
 
+
+/**************Variables for Impedance Rendering****************************/
+
+/*
 float springK_X = 100.0F; //! [N/m]
 float damperK_X = 0.0F;
 float springK_Y = 100.0F; //! [N/m]
 float damperK_Y = 0.0F;
 float springK_P = 150.0F; //! [mNm/rad]
+float damperK_P = 0.0F;*/
+
+float springK_X = 0.0F; //! [N/m]
+float damperK_X = 0.0F;
+float springK_Y = 0.0F; //! [N/m]
+float damperK_Y = 0.0F;
+float springK_P = 0.0F; //! [mNm/rad]
 float damperK_P = 0.0F;
+
+/***************************************************************************/
+
+/*************Variables for the state machine *******************************/
+
+enum {
+  homing, 
+  centering,
+  normal_op
+}states; 
+
+int stateM=homing;
+int axes_calib[3] = {0,0,1}; //! TO DO: CHANGE THIS WHEN THE LIMIT SWITCH OF PITCH IS INCORPORATED, FOR THE MOMENT IT IS SIMULATED AS ALWAYS "HOMED"
+
+/**************************************************************************/
+
 
 //PID VARIABLES
 
-//Define Variables we'll be connecting to
-double SetpointX, SetpointY, SetpointP;
+
+double referencePosX, referencePosY, referenceOriP;
 
 
 
-double Kp_X=100, Ki_X=0, Kd_X=2;
-double Kp_Y=100, Ki_Y=0, Kd_Y=2;
-double Kp_P=2000*PI/180.0F*0.001, Ki_P=0, Kd_P=0*PI/180.0F*0.001; //! Nm/rad
+double kp_PosX=100, ki_PosX=0, kd_PosX=2;
+double kp_PosY=100, ki_PosY=0, kd_PosY=2;
+double kp_OriP=2000*PI/180.0F*0.001, ki_OriP=0*PI/180.0F*0.001, kd_OriP=0*PI/180.0F*0.001; //! Nm/rad
 
-//
-
-PID PID_X(&positionX, &forceX, &SetpointX, Kp_X, Ki_X, Kd_X, DIRECT); //! On measurement
-PID PID_Y(&positionY, &forceY, &SetpointY, Kp_Y, Ki_Y, Kd_Y, DIRECT);
-PID PID_P(&positionP, &torqueP,&SetpointP, Kp_P, Ki_P, Kd_P, DIRECT);
-
-//Servo motorX_servo;
+PID PID_posX(&positionX, &forceX, &referencePosX, kp_PosX, ki_PosX, kd_PosX, DIRECT); //! On measurement
+PID PID_posY(&positionY, &forceY, &referencePosY, kp_PosY, ki_PosY, kd_PosY, DIRECT);
+PID PID_oriP(&orientationP, &torqueP, &referenceOriP, kp_OriP, ki_OriP, kd_OriP, DIRECT);
 
 ros::NodeHandle nh;
 geometry_msgs::PoseStamped pose_msg; //! 6DoF
 geometry_msgs::WrenchStamped wrench_msg;
+geometry_msgs::TwistStamped twist_msg;
 ros::Publisher p_pose("/FI_Pose/2", &pose_msg);
 ros::Publisher p_wrench("/FI_Wrench/2", &wrench_msg);
+ros::Publisher p_twist("/FI_TWIST/2", &twist_msg);
+
 
 
 typedef enum 
@@ -109,32 +152,27 @@ typedef enum
 }axisID;
 
 
-QEC_1X motorX(CS1);
-QEC_1X motorY(CS3);
-QEC_1X motorP(CS2);
+QEC_1X encoderX(CS1);
+QEC_1X encoderY(CS3);
+QEC_1X encoderP(CS2);
 
 void setup() {
- 
+  pinMode(limitSwitchX, INPUT);
+  pinMode(limitSwitchY, INPUT);
+  attachInterrupt(limitSwitchX, FI_posResetX, RISING);
+  attachInterrupt(limitSwitchY, FI_posResetY, RISING);
   Serial.begin(115200);
   while (!Serial) {
     ; 
   }
-/*
-  if ( xSerialSemaphore == NULL )  // Check to confirm that the Serial Semaphore has not already been created.
-  {
-    xSerialSemaphore = xSemaphoreCreateMutex();  // Create a mutex semaphore we will use to manage the Serial Port
-    if ( ( xSerialSemaphore ) != NULL )
-      xSemaphoreGive( ( xSerialSemaphore ) );  // Make the Serial Port available for use, by "Giving" the Semaphore.
-  }
-*/
+
 //! Set up of the tasks
 
-  motorX.QEC_init( axisX , ENCODERSCALE1, ENCODERSIGN1);
-  motorY.QEC_init( axisY , ENCODERSCALE2, ENCODERSIGN2);
-  motorP.QEC_init( axisP , ENCODERSCALE3, ENCODERSIGN3);
+  encoderX.QEC_init( axisX , ENCODERSCALE1, ENCODERSIGN1);
+  encoderY.QEC_init( axisY , ENCODERSCALE2, ENCODERSIGN2);
+  encoderP.QEC_init( axisP , ENCODERSCALE3, ENCODERSIGN3);
 
   xTaskCreate(TaskStateMachine, (const portCHAR * ) "State Machine", STACK_SIZE , NULL , 1, NULL); 
-  //xTaskCreate(TaskComm, (const portCHAR * ) "Communication", STACK_SIZE , NULL , 2, NULL);  //! Higher Priority the less frequent
   vTaskStartScheduler();
   Serial.println("Insufficient RAM");
   while(1);
@@ -148,53 +186,80 @@ void loop() {
 void TaskStateMachine(void *pvParameters)
 {
     (void) pvParameters;
+    
+    /*****ROS communication initialization*******/
     nh.initNode();
     nh.advertise(p_pose);
     nh.advertise(p_wrench);
-	  analogWriteResolution(12); 
-    
+    nh.advertise(p_twist);
+	  
+    analogWriteResolution(12); //! Set resolution of the PWM's and DAC outputs for the ESCON Drivers.  
+
     //! Automatic initializations of PID's
 
-    PID_X.SetOutputLimits(-25.0,25.0); //! N
-    PID_Y.SetOutputLimits(-25.0,25.0); //! N
-    PID_P.SetOutputLimits(-0.927,0.927); //! Nm
-    PID_X.SetSampleTime(1000); //! [us]
-    PID_Y.SetSampleTime(1000); //! [us]
-    PID_P.SetSampleTime(1000); //! [us]
+    PID_posX.SetOutputLimits(-25.0,25.0); //! N
+    PID_posY.SetOutputLimits(-25.0,25.0); //! N
+    PID_oriP.SetOutputLimits(-0.927,0.927); //! Nm
+    PID_posX.SetSampleTime(POSE_PID_SAMPLE_R); //! [us]
+    PID_posY.SetSampleTime(POSE_PID_SAMPLE_R); //! [us]
+    PID_oriP.SetSampleTime(POSE_PID_SAMPLE_R); //! [us]
 
-    PID_X.SetMode(AUTOMATIC);
-    PID_Y.SetMode(AUTOMATIC);
-    PID_P.SetMode(AUTOMATIC);   
+    PID_posX.SetMode(AUTOMATIC);
+    PID_posY.SetMode(AUTOMATIC);
+    PID_oriP.SetMode(AUTOMATIC);   
 
   for(;;)
   {
     
     //!First step -> Get the pose of the platform.
-    FI_getPose();
-    //FI_Force_Imp_Update();
-    SetpointX=X_LIMIT/2.0; 
-    SetpointY=Y_LIMIT/2.0; SetpointP=0.0;
+    FI_getMotion();
+    //FI_ImpUpdate();
 
-    FI_GOTO(SetpointX,SetpointY,SetpointP);
-
-    FI_SetForce(forceX,motorX_pin,1);
-    FI_SetForce(forceY,motorY_pin,1);
-    FI_SetTorque(torqueP,motorP_pin,1,PITCH_CONV_R); 
-
-    FI_pubPose(); //! publish pose in ROS
+    switch(stateM) {
+      case homing: //! The robot tries to go outside the workspace until it meets with the limits switches
+          forceY= -5; //![N]
+          forceX= -5; //! 
+          torqueP = 0;  //! [Nm]
+          if ( ( axes_calib[0]==1 ) && ( axes_calib[1]==1 ) && ( axes_calib[2]==1 )){
+              static int idle = micros(); 
+              forceY= 0, forceX= 0, torqueP = 0;  //! [Nm]              
+              if (micros()-idle>1000){
+                stateM=centering;
+              }
+              
+            }
+          break;
+      case centering:
+          referencePosX=X_LIMIT/2.0, referencePosY=Y_LIMIT/2.0, referenceOriP=0.0;
+          kp_PosX=70, kp_PosY=70, kp_OriP=1000*PI/180.0F*0.001;
+          kd_PosX=1, kd_PosY=1, kd_OriP=0*PI/180.0F*0.001;
+          FI_mPoseControl();
+          /*if  (((positionX - referencePosX) < 0.003) && ((positionY - referencePosY) < 0.003) && ((orientationP - referenceOriP ) < 3) ){
+            stateM=normal_op;
+          }*/
+          break;
+      case normal_op: 
+          FI_ImpUpdate();
+          break;
+    }
+    
+    //nyquist++;
+    //if (nyquist>10){ //! This is for making sure that the velocity control is made 10 slower than position control
+    //   nyquist=0;
+    // }
+    FI_setWrenchs(); //! Apply forces and torques
+    FI_pubMotion(); //! publish pose and twist in ROS
     FI_pubWrench();
     nh.spinOnce();
     vTaskDelay ((float) (1000 / portTICK_PERIOD_MS ) / CONTROL_FREQ ); //! Control Rate
   }
-
 }
 
 /************************ Set of functions for Force Reflection *****************************
-* FI_homing() retrieves the pose using the encoders and the IMU
-* FI_impedance() generates a bias in the encoder counter that will set the zero dimension
+
 *******************************************************************************************/ 
 
-void FI_SetTorque(float torque, int pin, int sign, float reduction){
+void FI_setTorque(float torque, int pin, int sign, float reduction){
 
   double escon_current = (torque*1000/CURRENT_K)/reduction;
   escon_current = (escon_current > CURRENT_MAX ? CURRENT_MAX : (escon_current<-CURRENT_MAX ? -CURRENT_MAX : escon_current)); // Saturate the Current to the max of the escon
@@ -202,63 +267,125 @@ void FI_SetTorque(float torque, int pin, int sign, float reduction){
   analogWrite(pin,escon_current_PWM);
 }
 
-void FI_SetForce(float force, int pin, int sign){
+void FI_setForce(float force, int pin, int sign){
 
-  float escon_torque = force*LINEAR_CONV_K; //! The reduction is here.
-  FI_SetTorque(escon_torque,pin,sign,1.0);
+  float escon_torque = force*BELT_PULLEY_R; //! The reduction is here.
+  FI_setTorque(escon_torque,pin,sign,1.0);
+}
+
+void FI_setWrenchs(){
+    FI_setForce(forceX,motorX_pin,1);
+    FI_setForce(forceY,motorY_pin,1);
+    FI_setTorque(torqueP,motorP_pin,1,PITCH_REDUCTION_R); 
 }
 
 
-void FI_Force_Imp_Update(){
-    forceX=(X_LIMIT/2.0-motorX.outDimension)*springK_X ; //! Remember Escon sign 
-    forceY=(Y_LIMIT/2.0-motorY.outDimension)*springK_Y ; //! Remember Escon sign 
-    torqueP=((P_LIMIT/2.0-motorP.outDimension )*PI/180.0F)*springK_P*0.001;    //! 0.001: Convert the stiffness from  mNm/rad to Nm/rad
+
+void FI_mPoseControl(){
+  PID_posX.SetTunings(kp_PosX,ki_PosX,kd_PosX);
+  PID_posY.SetTunings(kp_PosY,ki_PosY,kd_PosY);
+  PID_oriP.SetTunings(kp_OriP,ki_OriP,kd_OriP);
+  PID_posX.Compute();
+  PID_posY.Compute();
+  PID_oriP.Compute();
 }
 
-void FI_GOTO(float x, float y, float p){
-  PID_X.Compute();
-  PID_Y.Compute();
-  PID_P.Compute();
-}
-/************************ Set of functions for Pose Decoding *****************************
-* FI_getPose() retrieves the pose using the encoders and the IMU
-* FI_encBias() generates a bias in the encoder counter that will set the zero dimension
-*******************************************************************************************/ 
+void FI_sPoseControl(PID PID_axis, double kp, double ki, double kd){
 
+  PID_axis.SetTunings(kp,ki,kd);
+  PID_axis.Compute();
+}
+
+
+/**********************************Impedance Rendering******************************/
+
+void FI_ImpUpdate(){
+    forceX=(X_LIMIT/2.0-positionX)*springK_X ; //! Remember Escon sign 
+    forceY=(Y_LIMIT/2.0-positionY)*springK_Y ; //! Remember Escon sign 
+    torqueP=((P_LIMIT/2.0-orientationP)*PI/180.0F)*springK_P*0.001;    //! 0.001: Convert the stiffness from  mNm/rad to Nm/rad
+}
+
+/***********************************************************************************/
 
 void FI_getPose(){ //! Get the pose of the platform using the values of the encoders
-   motorX.QEC_getPose(); //! Motor for motion in X
-   motorY.QEC_getPose(); //! Motor for motion in Y
-   motorP.QEC_getPose(); //! Motor for motion in Pitch
-   positionX=motorX.outDimension; 
-   positionY=motorY.outDimension; 
-   positionP=motorP.outDimension; //! Rad/s
+   encoderX.QEC_getPose(); //! Motor for motion in X
+   encoderY.QEC_getPose(); //! Motor for motion in Y
+   encoderP.QEC_getPose(); //! Motor for motion in Pitch
+   positionX=encoderX.outDimension; 
+   positionY=encoderY.outDimension; 
+   orientationP=encoderP.outDimension; //! Rad/s
 }
 
-void FI_encBias(){ //! Set an offset to the counter for setting a new zero //! Alternatively clear counters? 0X20 SPI
-   motorX.QEC_home(); //! Motor for motion in X
-   motorY.QEC_home(); //! Motor for motion in Y
-   motorP.QEC_home(); //! Motor for motion in Pitch
+void FI_getTwist(){
+    velocityX= (positionX-positionX_old)/(POSE_PID_SAMPLE_R);
+    velocityY= (positionY-positionY_old)/(POSE_PID_SAMPLE_R);
+    angVelocityP = (orientationP-orientationP_old)/(POSE_PID_SAMPLE_R);
+    positionX_old=positionX; 
+    positionY_old=positionY; 
+    orientationP_old=orientationP;
+} 
+
+
+void FI_getMotion(){
+    FI_getPose();
+    FI_getTwist();
+}
+
+void FI_encBias(QEC_1X &encoder){ //! Set an offset to the counter for setting a new zero //! Alternatively clear counters? 0X20 SPI
+   encoder.QEC_offset(); 
+}
+
+
+void FI_posResetX(){  //! FOR THE MOMENT THERE ARE ONLY 2 LIMIT SWITCHES ( FOR X AND Y )
+  if (axes_calib[0]==0){
+    FI_encBias(encoderX);
+    axes_calib[0]=1;
+  }
+}
+
+void FI_posResetY(){ 
+   if (axes_calib[1]==0){
+    FI_encBias(encoderY);
+    axes_calib[1]=1;
+  }
+}
+
+void FI_oriResetP(){ 
+   if (axes_calib[1]==0){
+    FI_encBias(encoderP);
+    axes_calib[2]=1;
+  }
 }
 
 /************************ Set of functions for Communication *****************************
-* FI_pubPose() will broadcast a topic /FI_Pose with the pose of the platform
+* FI_pubPose() will broadcast a topic /FI_pose with the pose of the platform
 *******************************************************************************************/ 
 
 
-void FI_pubPose(){
+void FI_pubMotion(){
   pose_msg.header.frame_id="Left_Pedal";
   pose_msg.header.stamp=nh.now();
-  pose_msg.pose.position.x = motorX.outDimension;
-  pose_msg.pose.position.y = motorY.outDimension;
+  pose_msg.pose.position.x = positionX;
+  pose_msg.pose.position.y = positionY;
   pose_msg.pose.position.z = 0.0f;
-  pose_msg.pose.orientation.x = motorP.outDimension;
-  //pose_msg.pose.orientation.x = 0.0f;
+  pose_msg.pose.orientation.x = orientationP;
   pose_msg.pose.orientation.y = 0.0f;
   pose_msg.pose.orientation.z = 0.0f;
   pose_msg.pose.orientation.w = 1.0f;
+
+  twist_msg.header.frame_id="Left_Pedal";
+  twist_msg.header.stamp=nh.now();
+  twist_msg.twist.linear.x = velocityX;
+  twist_msg.twist.linear.y = velocityY;
+  twist_msg.twist.linear.z = 0.0f;
+  twist_msg.twist.angular.x = angVelocityP;
+  twist_msg.twist.angular.y = 0.0f;
+  twist_msg.twist.angular.z = 0.0f;
+
   p_pose.publish(&pose_msg);
+  p_twist.publish(&twist_msg);
   }
+
 
 void FI_pubWrench(){
   wrench_msg.header.frame_id="Left_Pedal";
@@ -278,16 +405,16 @@ void FI_pubWrench(){
 *******************************************************************************************/ 
 
 void FI_print() { //! For serial debugging
-  Serial.print("PositionX = ");
-  Serial.print(motorX.outDimension,4);
+  Serial.print("positionX = ");
+  Serial.print(encoderX.outDimension,4);
   Serial.print(", ");
   
   Serial.print("PositionY = ");
-  Serial.print(motorY.outDimension,4);
+  Serial.print(encoderY.outDimension,4);
   Serial.print(", ");
 
-  Serial.print("PositionP = ");
-  Serial.print(motorP.outDimension,4);
+  Serial.print("orientationP = ");
+  Serial.print(encoderP.outDimension,4);
   Serial.print(", ");
   Serial.println();
   //!delay(100);
