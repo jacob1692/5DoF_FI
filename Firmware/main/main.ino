@@ -7,7 +7,6 @@
 #include <wiring_analog.h>
 #include <PinNames.h>
 #include <stm32f3xx_hal_dac.h>
-
 #include <PID_v1.h>
 
 //! TO DO: change orientation from euler to quaternion to deliver a logical ROS messsage!!
@@ -24,9 +23,17 @@
 #define ENCODERSCALE2 Y_LIMIT/16986.0F
 #define ENCODERSCALE3 P_LIMIT/4418.0F 
 
+#define SOFTPOT_YAW_SCALE (90.0F/1090.0F)*(45.0/70.0)
+#define SOFTPOT_YAW_BIAS 1251.0F - 301.0F
+
+#define SOFTPOT_ROLL_SCALE 45.0F/522.0F
+#define SOFTPOT_ROLL_BIAS 2174.0F - 92.0F + 8.0F
+
 #define ENCODERSIGN1  -1
 #define ENCODERSIGN2  -1
 #define ENCODERSIGN3  -1
+#define SOFTPOT_ROLL_SIGN -1
+#define SOFTPOT_YAW_SIGN -1
 
 #define STACK_SIZE 512
 
@@ -68,17 +75,28 @@ double torqueP=0.0F;
 
 double positionX; 
 double positionY; 
-double orientationP; 
+double orientationP ; 
+double orientationY = 0.0;
+double orientationR = 0.0;
+
 
 double velocityX, velocityY, angVelocityP;
 
 double positionX_old; 
 double positionY_old; 
-double orientationP_old;
+double orientationP_old = 0.0;
+double orientationY_old = 0.0;
+double orientationR_old = 0.0;
+
+
+/*******************************************/
 
 int CS1 = D6; //! CS4 -> Lateral 
 int CS2 = D9; //! CS5  -> Dorsi/Plantar Flexion
 int CS3 = D10; //! CS6 -> Flexion/Extension of the Leg
+
+int oriRoll_pin = A0;
+int oriYaw_pin = A1;
 
 int limitSwitchX = D8; // VERIFY THIS NUMBER!!!
 int limitSwitchY = D7;
@@ -194,7 +212,7 @@ void TaskStateMachine(void *pvParameters)
     nh.advertise(p_twist);
 	  
     analogWriteResolution(12); //! Set resolution of the PWM's and DAC outputs for the ESCON Drivers.  
-
+    analogReadResolution(12);
     //! Automatic initializations of PID's
 
     PID_posX.SetOutputLimits(-25.0,25.0); //! N
@@ -232,7 +250,7 @@ void TaskStateMachine(void *pvParameters)
       case centering:
           referencePosX=X_LIMIT/2.0, referencePosY=Y_LIMIT/2.0, referenceOriP=0.0;
           kp_PosX=70, kp_PosY=70, kp_OriP=1000*PI/180.0F*0.001;
-          kd_PosX=1, kd_PosY=1, kd_OriP=0*PI/180.0F*0.001;
+          kd_PosX=0.1, kd_PosY=0.1, kd_OriP=0*PI/180.0F*0.001;
           FI_mPoseControl();
           /*if  (((positionX - referencePosX) < 0.003) && ((positionY - referencePosY) < 0.003) && ((orientationP - referenceOriP ) < 3) ){
             stateM=normal_op;
@@ -314,7 +332,13 @@ void FI_getPose(){ //! Get the pose of the platform using the values of the enco
    positionX=encoderX.outDimension; 
    positionY=encoderY.outDimension; 
    orientationP=encoderP.outDimension; //! Rad/s
+   orientationR=0.9*orientationR_old + 0.1 * SOFTPOT_ROLL_SIGN * SOFTPOT_ROLL_SCALE*(analogRead(oriRoll_pin) - SOFTPOT_ROLL_BIAS);
+   orientationY=0.9*orientationY_old + 0.1 * SOFTPOT_YAW_SIGN * SOFTPOT_YAW_SCALE*(analogRead(oriYaw_pin) - SOFTPOT_YAW_BIAS);
+   orientationR_old=orientationR;
+   orientationY_old=orientationY;
+
 }
+
 
 void FI_getTwist(){
     velocityX= (positionX-positionX_old)/(POSE_PID_SAMPLE_R);
@@ -369,9 +393,9 @@ void FI_pubMotion(){
   pose_msg.pose.position.y = positionY;
   pose_msg.pose.position.z = 0.0f;
   pose_msg.pose.orientation.x = orientationP;
-  pose_msg.pose.orientation.y = 0.0f;
-  pose_msg.pose.orientation.z = 0.0f;
-  pose_msg.pose.orientation.w = 1.0f;
+  pose_msg.pose.orientation.y = orientationR;
+  pose_msg.pose.orientation.z = orientationY;
+  pose_msg.pose.orientation.w = 0.0f;
 
   twist_msg.header.frame_id="Left_Pedal";
   twist_msg.header.stamp=nh.now();
