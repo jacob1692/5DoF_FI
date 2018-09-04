@@ -11,11 +11,26 @@
 
 //! TO DO: change orientation from euler to quaternion to deliver a logical ROS messsage!!
 
-//************* Workspace **** Left Platform***********************/ 
+//************* Workspace **** Right Platform***********************/ 
 
-#define X_LIMIT 0.355F //! [m] 
-#define Y_LIMIT 0.303F //! [m]
+#define FRAME "Left_Pedal"
+#define INTERFACE "2"  //! 1:Right 2:Left
+#define HOMING_FORCE_X -5.0
+#define HOMING_FORCE_Y 5.0 
+#define HOMING_OFFSET_X -X_LIMIT/2 //! Left
+#define HOMING_OFFSET_Y Y_LIMIT/2 //! Left
+#define HOMING_OFFSET_P 0 //! Right
+
+//#define HOMING_FORCE -5.0 //! Left 
+
+#define X_LIMIT 0.350F //! [m] 
+#define Y_LIMIT 0.293F //! [m]
 #define P_LIMIT 90.0F //! [deg]
+
+
+#define ENCODERSIGN1  -1 //! LEFT
+#define ENCODERSIGN2  1 //! LEFT
+#define ENCODERSIGN3  -1 //! LEFT
 
 /******************************************************************/
 
@@ -29,9 +44,6 @@
 #define SOFTPOT_ROLL_SCALE 45.0F/522.0F
 #define SOFTPOT_ROLL_BIAS 2174.0F - 92.0F + 8.0F
 
-#define ENCODERSIGN1  -1
-#define ENCODERSIGN2  -1
-#define ENCODERSIGN3  -1
 #define SOFTPOT_ROLL_SIGN -1
 #define SOFTPOT_YAW_SIGN -1
 
@@ -41,12 +53,16 @@
 #define CONTROL_FREQ 10000 //! [hz] 10kHz
 
 #define CURRENT_K 42.43F //! K_i Faulhaber 3890024CR [mNm/A]
+//#define CURRENT_K 30.2F //! K_i Maxon Motor RE40mm 148867 [mNm/A]
+
 #define BELT_PULLEY_R 0.00915F //! Torque/Force
 #define PITCH_REDUCTION_R 40.0/9.15F //! Pulley Big [mm] / Pulley Belt [mm]
-#define CURRENT_MAX 15.0 //! A
+#define C_CURRENT_MAX 5 //! 6 for Right and 5 for Left [A] 
 
-#define MAX_TORQUE 0.212F //! [Nm]
-#define MAX_RPM 6000 
+#define MAX_TORQUE 0.212F //! [Nm] Left
+#define MAX_RPM 6000
+//#define MAX_TORQUE 0.187F //! [Nm] Right
+//#define MAX_RPM 12000
 
 
 #define PI 3.14159265359F
@@ -75,7 +91,10 @@ double torqueP=0.0F;
 
 double positionX; 
 double positionY; 
-double orientationP ; 
+double positionX_offset=0.0;
+double positionY_offset=0.0;
+double positionP_offset=0.0;
+double orientationP; 
 double orientationY = 0.0;
 double orientationR = 0.0;
 
@@ -160,7 +179,7 @@ geometry_msgs::WrenchStamped wrench_msg;
 geometry_msgs::TwistStamped twist_msg;
 ros::Publisher p_pose("/FI_Pose/2", &pose_msg);
 ros::Publisher p_wrench("/FI_Wrench/2", &wrench_msg);
-ros::Publisher p_twist("/FI_TWIST/2", &twist_msg);
+ros::Publisher p_twist("/FI_Twist/2", &twist_msg);
 
 
 
@@ -210,7 +229,7 @@ void TaskStateMachine(void *pvParameters)
     nh.advertise(p_pose);
     nh.advertise(p_wrench);
     nh.advertise(p_twist);
-	  
+    
     analogWriteResolution(12); //! Set resolution of the PWM's and DAC outputs for the ESCON Drivers.  
     analogReadResolution(12);
     //! Automatic initializations of PID's
@@ -235,20 +254,20 @@ void TaskStateMachine(void *pvParameters)
 
     switch(stateM) {
       case homing: //! The robot tries to go outside the workspace until it meets with the limits switches
-          forceY= -5; //![N]
-          forceX= -5; //! 
+          forceY= HOMING_FORCE_Y; //![N]
+          forceX= HOMING_FORCE_X; //! 
           torqueP = 0;  //! [Nm]
           if ( ( axes_calib[0]==1 ) && ( axes_calib[1]==1 ) && ( axes_calib[2]==1 )){
               static int idle = micros(); 
               forceY= 0, forceX= 0, torqueP = 0;  //! [Nm]              
-              if (micros()-idle>1000){
+              if (micros()-idle>1000){ //! After a second move to next state
                 stateM=centering;
               }
               
             }
           break;
       case centering:
-          referencePosX=X_LIMIT/2.0, referencePosY=Y_LIMIT/2.0, referenceOriP=0.0;
+          referencePosX=0.0, referencePosY=0.0, referenceOriP=0.0;
           kp_PosX=70, kp_PosY=70, kp_OriP=1000*PI/180.0F*0.001;
           kd_PosX=0.1, kd_PosY=0.1, kd_OriP=0*PI/180.0F*0.001;
           FI_mPoseControl();
@@ -280,8 +299,8 @@ void TaskStateMachine(void *pvParameters)
 void FI_setTorque(float torque, int pin, int sign, float reduction){
 
   double escon_current = (torque*1000/CURRENT_K)/reduction;
-  escon_current = (escon_current > CURRENT_MAX ? CURRENT_MAX : (escon_current<-CURRENT_MAX ? -CURRENT_MAX : escon_current)); // Saturate the Current to the max of the escon
-  int escon_current_PWM = sign * escon_current*(4096.0*0.8/10)+4096.0*0.5;
+  escon_current = (escon_current > C_CURRENT_MAX ? C_CURRENT_MAX : (escon_current<-C_CURRENT_MAX ? -C_CURRENT_MAX : escon_current)); // Saturate the Current to the max of the escon
+  int escon_current_PWM = sign * escon_current*(4096.0*0.8/(2*C_CURRENT_MAX))+4096.0*0.5;
   analogWrite(pin,escon_current_PWM);
 }
 
@@ -329,8 +348,8 @@ void FI_getPose(){ //! Get the pose of the platform using the values of the enco
    encoderX.QEC_getPose(); //! Motor for motion in X
    encoderY.QEC_getPose(); //! Motor for motion in Y
    encoderP.QEC_getPose(); //! Motor for motion in Pitch
-   positionX=encoderX.outDimension; 
-   positionY=encoderY.outDimension; 
+   positionX=encoderX.outDimension + positionX_offset; 
+   positionY=encoderY.outDimension + positionY_offset; 
    orientationP=encoderP.outDimension; //! Rad/s
    orientationR=0.9*orientationR_old + 0.1 * SOFTPOT_ROLL_SIGN * SOFTPOT_ROLL_SCALE*(analogRead(oriRoll_pin) - SOFTPOT_ROLL_BIAS);
    orientationY=0.9*orientationY_old + 0.1 * SOFTPOT_YAW_SIGN * SOFTPOT_YAW_SCALE*(analogRead(oriYaw_pin) - SOFTPOT_YAW_BIAS);
@@ -363,6 +382,7 @@ void FI_encBias(QEC_1X &encoder){ //! Set an offset to the counter for setting a
 void FI_posResetX(){  //! FOR THE MOMENT THERE ARE ONLY 2 LIMIT SWITCHES ( FOR X AND Y )
   if (axes_calib[0]==0){
     FI_encBias(encoderX);
+    positionX_offset=HOMING_OFFSET_X;
     axes_calib[0]=1;
   }
 }
@@ -370,6 +390,7 @@ void FI_posResetX(){  //! FOR THE MOMENT THERE ARE ONLY 2 LIMIT SWITCHES ( FOR X
 void FI_posResetY(){ 
    if (axes_calib[1]==0){
     FI_encBias(encoderY);
+    positionY_offset=HOMING_OFFSET_Y;
     axes_calib[1]=1;
   }
 }
@@ -377,6 +398,7 @@ void FI_posResetY(){
 void FI_oriResetP(){ 
    if (axes_calib[1]==0){
     FI_encBias(encoderP);
+    positionP_offset=HOMING_OFFSET_P;
     axes_calib[2]=1;
   }
 }
@@ -387,7 +409,7 @@ void FI_oriResetP(){
 
 
 void FI_pubMotion(){
-  pose_msg.header.frame_id="Left_Pedal";
+  pose_msg.header.frame_id=FRAME;
   pose_msg.header.stamp=nh.now();
   pose_msg.pose.position.x = positionX;
   pose_msg.pose.position.y = positionY;
@@ -397,7 +419,7 @@ void FI_pubMotion(){
   pose_msg.pose.orientation.z = orientationY;
   pose_msg.pose.orientation.w = 0.0f;
 
-  twist_msg.header.frame_id="Left_Pedal";
+  twist_msg.header.frame_id=FRAME;
   twist_msg.header.stamp=nh.now();
   twist_msg.twist.linear.x = velocityX;
   twist_msg.twist.linear.y = velocityY;
@@ -412,7 +434,7 @@ void FI_pubMotion(){
 
 
 void FI_pubWrench(){
-  wrench_msg.header.frame_id="Left_Pedal";
+  wrench_msg.header.frame_id=FRAME;
   wrench_msg.header.stamp=nh.now();
   wrench_msg.wrench.force.x = forceX;
   wrench_msg.wrench.force.y = forceY;
