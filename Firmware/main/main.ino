@@ -1,4 +1,3 @@
-#include <STM32FreeRTOS.h>
 #include <ros.h>
 #include <QEC_1X_SPI.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -11,15 +10,15 @@
 
 //! TO DO: change orientation from euler to quaternion to deliver a logical ROS messsage!!
 
-//************* Workspace **** Right Platform***********************/ 
+//************* Workspace **** Left Platform***********************/ 
 
 #define FRAME "Left_Pedal"
 #define INTERFACE "2"  //! 1:Right 2:Left
-#define HOMING_FORCE_X -5.0
+#define HOMING_FORCE_X -6.0
 #define HOMING_FORCE_Y 5.0 
 #define HOMING_OFFSET_X -X_LIMIT/2 //! Left
 #define HOMING_OFFSET_Y Y_LIMIT/2 //! Left
-#define HOMING_OFFSET_P 0 //! Right
+#define HOMING_OFFSET_P -33.0F //! Right
 
 //#define HOMING_FORCE -5.0 //! Left 
 
@@ -89,6 +88,10 @@ double forceX=0.0F;
 double forceY=0.0F;
 double torqueP=0.0F;  
 
+double s_forceX=0.0F;
+double s_forceY=0.0F;
+double s_torqueP=0.0F;
+
 double positionX; 
 double positionY; 
 double positionX_offset=0.0;
@@ -153,7 +156,7 @@ enum {
 }states; 
 
 int stateM=homing;
-int axes_calib[3] = {0,0,1}; //! TO DO: CHANGE THIS WHEN THE LIMIT SWITCH OF PITCH IS INCORPORATED, FOR THE MOMENT IT IS SIMULATED AS ALWAYS "HOMED"
+int axes_calib[3] = {0,0,0}; //! TO DO: CHANGE THIS WHEN THE LIMIT SWITCH OF PITCH IS INCORPORATED, FOR THE MOMENT IT IS SIMULATED AS ALWAYS "HOMED"
 
 /**************************************************************************/
 
@@ -173,10 +176,22 @@ PID PID_posX(&positionX, &forceX, &referencePosX, kp_PosX, ki_PosX, kd_PosX, DIR
 PID PID_posY(&positionY, &forceY, &referencePosY, kp_PosY, ki_PosY, kd_PosY, DIRECT);
 PID PID_oriP(&orientationP, &torqueP, &referenceOriP, kp_OriP, ki_OriP, kd_OriP, DIRECT);
 
+
 ros::NodeHandle nh;
 geometry_msgs::PoseStamped pose_msg; //! 6DoF
 geometry_msgs::WrenchStamped wrench_msg;
 geometry_msgs::TwistStamped twist_msg;
+
+void FI_subWrench(const geometry_msgs::Wrench& s_wrench_msg){ 
+    s_forceX = s_wrench_msg.force.x; 
+    s_forceY = s_wrench_msg.force.y; 
+    /* s_forceZ = s_wrench_msg.force.z;*/
+    s_torqueP = s_wrench_msg.torque.x;
+    /* s_torqueR = s_wrench_msg.torque.y;
+    s_torqueY = s_wrench_msg.torque.z */
+}
+
+ros::Subscriber<geometry_msgs::Wrench> s_wrench("/FI_setWrench/2",FI_subWrench);
 ros::Publisher p_pose("/FI_Pose/2", &pose_msg);
 ros::Publisher p_wrench("/FI_Wrench/2", &wrench_msg);
 ros::Publisher p_twist("/FI_Twist/2", &twist_msg);
@@ -194,11 +209,34 @@ QEC_1X encoderY(CS3);
 QEC_1X encoderP(CS2);
 
 void setup() {
+
   pinMode(limitSwitchX, INPUT);
   pinMode(limitSwitchY, INPUT);
   attachInterrupt(limitSwitchX, FI_posResetX, RISING);
   attachInterrupt(limitSwitchY, FI_posResetY, RISING);
-  Serial.begin(115200);
+  nh.initNode();
+  nh.advertise(p_pose);
+  nh.advertise(p_wrench);
+  /*nh.advertise(p_twist);*/
+  nh.subscribe(s_wrench);
+
+      /*****ROS communication initialization*******/
+  analogWriteResolution(12); //! Set resolution of the PWM's and DAC outputs for the ESCON Drivers.  
+  analogReadResolution(12);
+  //! Automatic initializations of PID's
+
+  PID_posX.SetOutputLimits(-25.0,25.0); //! N
+  PID_posY.SetOutputLimits(-25.0,25.0); //! N
+  PID_oriP.SetOutputLimits(-0.927,0.927); //! Nm
+  PID_posX.SetSampleTime(POSE_PID_SAMPLE_R); //! [us]
+  PID_posY.SetSampleTime(POSE_PID_SAMPLE_R); //! [us]
+  PID_oriP.SetSampleTime(POSE_PID_SAMPLE_R); //! [us]
+
+  PID_posX.SetMode(AUTOMATIC);
+  PID_posY.SetMode(AUTOMATIC);
+  PID_oriP.SetMode(AUTOMATIC);   
+
+  Serial.begin(230400);
   while (!Serial) {
     ; 
   }
@@ -208,46 +246,11 @@ void setup() {
   encoderX.QEC_init( axisX , ENCODERSCALE1, ENCODERSIGN1);
   encoderY.QEC_init( axisY , ENCODERSCALE2, ENCODERSIGN2);
   encoderP.QEC_init( axisP , ENCODERSCALE3, ENCODERSIGN3);
-
-  xTaskCreate(TaskStateMachine, (const portCHAR * ) "State Machine", STACK_SIZE , NULL , 1, NULL); 
-  vTaskStartScheduler();
-  Serial.println("Insufficient RAM");
-  while(1);
-
 }
 
 void loop() {
- }
 
 
-void TaskStateMachine(void *pvParameters)
-{
-    (void) pvParameters;
-    
-    /*****ROS communication initialization*******/
-    nh.initNode();
-    nh.advertise(p_pose);
-    nh.advertise(p_wrench);
-    nh.advertise(p_twist);
-    
-    analogWriteResolution(12); //! Set resolution of the PWM's and DAC outputs for the ESCON Drivers.  
-    analogReadResolution(12);
-    //! Automatic initializations of PID's
-
-    PID_posX.SetOutputLimits(-25.0,25.0); //! N
-    PID_posY.SetOutputLimits(-25.0,25.0); //! N
-    PID_oriP.SetOutputLimits(-0.927,0.927); //! Nm
-    PID_posX.SetSampleTime(POSE_PID_SAMPLE_R); //! [us]
-    PID_posY.SetSampleTime(POSE_PID_SAMPLE_R); //! [us]
-    PID_oriP.SetSampleTime(POSE_PID_SAMPLE_R); //! [us]
-
-    PID_posX.SetMode(AUTOMATIC);
-    PID_posY.SetMode(AUTOMATIC);
-    PID_oriP.SetMode(AUTOMATIC);   
-
-  for(;;)
-  {
-    
     //!First step -> Get the pose of the platform.
     FI_getMotion();
     //FI_ImpUpdate();
@@ -257,6 +260,7 @@ void TaskStateMachine(void *pvParameters)
           forceY= HOMING_FORCE_Y; //![N]
           forceX= HOMING_FORCE_X; //! 
           torqueP = 0;  //! [Nm]
+          FI_oriResetP(); //! resembling the limit switch
           if ( ( axes_calib[0]==1 ) && ( axes_calib[1]==1 ) && ( axes_calib[2]==1 )){
               static int idle = micros(); 
               forceY= 0, forceX= 0, torqueP = 0;  //! [Nm]              
@@ -271,26 +275,22 @@ void TaskStateMachine(void *pvParameters)
           kp_PosX=70, kp_PosY=70, kp_OriP=1000*PI/180.0F*0.001;
           kd_PosX=0.1, kd_PosY=0.1, kd_OriP=0*PI/180.0F*0.001;
           FI_mPoseControl();
-          /*if  (((positionX - referencePosX) < 0.003) && ((positionY - referencePosY) < 0.003) && ((orientationP - referenceOriP ) < 3) ){
+          if  (((positionX - referencePosX) < 0.010) && ((positionY - referencePosY) < 0.010) && ((orientationP - referenceOriP ) < 3) ){
             stateM=normal_op;
-          }*/
+          }
           break;
       case normal_op: 
           FI_ImpUpdate();
           break;
-    }
-    
-    //nyquist++;
-    //if (nyquist>10){ //! This is for making sure that the velocity control is made 10 slower than position control
-    //   nyquist=0;
-    // }
+        }
+
     FI_setWrenchs(); //! Apply forces and torques
-    FI_pubMotion(); //! publish pose and twist in ROS
+    FI_pubMotion(); //! publish pose and twist in ROS*/
     FI_pubWrench();
     nh.spinOnce();
-    vTaskDelay ((float) (1000 / portTICK_PERIOD_MS ) / CONTROL_FREQ ); //! Control Rate
-  }
-}
+
+ }
+
 
 /************************ Set of functions for Force Reflection *****************************
 
@@ -337,9 +337,9 @@ void FI_sPoseControl(PID PID_axis, double kp, double ki, double kd){
 /**********************************Impedance Rendering******************************/
 
 void FI_ImpUpdate(){
-    forceX=(X_LIMIT/2.0-positionX)*springK_X ; //! Remember Escon sign 
-    forceY=(Y_LIMIT/2.0-positionY)*springK_Y ; //! Remember Escon sign 
-    torqueP=((P_LIMIT/2.0-orientationP)*PI/180.0F)*springK_P*0.001;    //! 0.001: Convert the stiffness from  mNm/rad to Nm/rad
+    forceX=(0-positionX)*springK_X + s_forceX; //! Remember Escon sign 
+    forceY=(0-positionY)*springK_Y + s_forceY; //! Remember Escon sign 
+    torqueP=((0-orientationP)*PI/180.0F)*springK_P*0.001 + s_torqueP;    //! 0.001: Convert the stiffness from  mNm/rad to Nm/rad
 }
 
 /***********************************************************************************/
@@ -350,7 +350,7 @@ void FI_getPose(){ //! Get the pose of the platform using the values of the enco
    encoderP.QEC_getPose(); //! Motor for motion in Pitch
    positionX=encoderX.outDimension + positionX_offset; 
    positionY=encoderY.outDimension + positionY_offset; 
-   orientationP=encoderP.outDimension; //! Rad/s
+   orientationP=encoderP.outDimension + positionP_offset; //! Rad/s
    orientationR=0.9*orientationR_old + 0.1 * SOFTPOT_ROLL_SIGN * SOFTPOT_ROLL_SCALE*(analogRead(oriRoll_pin) - SOFTPOT_ROLL_BIAS);
    orientationY=0.9*orientationY_old + 0.1 * SOFTPOT_YAW_SIGN * SOFTPOT_YAW_SCALE*(analogRead(oriYaw_pin) - SOFTPOT_YAW_BIAS);
    orientationR_old=orientationR;
@@ -396,7 +396,7 @@ void FI_posResetY(){
 }
 
 void FI_oriResetP(){ 
-   if (axes_calib[1]==0){
+   if (axes_calib[2]==0){
     FI_encBias(encoderP);
     positionP_offset=HOMING_OFFSET_P;
     axes_calib[2]=1;
@@ -419,17 +419,17 @@ void FI_pubMotion(){
   pose_msg.pose.orientation.z = orientationY;
   pose_msg.pose.orientation.w = 0.0f;
 
-  twist_msg.header.frame_id=FRAME;
+  /*twist_msg.header.frame_id=FRAME;
   twist_msg.header.stamp=nh.now();
   twist_msg.twist.linear.x = velocityX;
   twist_msg.twist.linear.y = velocityY;
   twist_msg.twist.linear.z = 0.0f;
   twist_msg.twist.angular.x = angVelocityP;
   twist_msg.twist.angular.y = 0.0f;
-  twist_msg.twist.angular.z = 0.0f;
+  twist_msg.twist.angular.z = 0.0f;*/
 
   p_pose.publish(&pose_msg);
-  p_twist.publish(&twist_msg);
+  /*p_twist.publish(&twist_msg);*/
   }
 
 
