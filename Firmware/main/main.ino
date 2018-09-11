@@ -18,7 +18,7 @@
 #define HOMING_FORCE_Y 5.0 
 #define HOMING_OFFSET_X -X_LIMIT/2 //! Left
 #define HOMING_OFFSET_Y Y_LIMIT/2 //! Left
-#define HOMING_OFFSET_P -33.0F //! Right
+#define HOMING_OFFSET_P 0.0F //! Right
 
 //#define HOMING_FORCE -5.0 //! Left 
 
@@ -46,10 +46,10 @@
 #define SOFTPOT_ROLL_SIGN -1
 #define SOFTPOT_YAW_SIGN -1
 
-#define STACK_SIZE 512
+/*#define STACK_SIZE 512*/
 
-#define COMM_FREQ 1000 //! [Hz] 1000Hz
-#define CONTROL_FREQ 10000 //! [hz] 10kHz
+/*#define COMM_FREQ 1000 //! [Hz] 1000Hz
+#define CONTROL_FREQ 10000 //! [hz] 10kHz*/
 
 #define CURRENT_K 42.43F //! K_i Faulhaber 3890024CR [mNm/A]
 //#define CURRENT_K 30.2F //! K_i Maxon Motor RE40mm 148867 [mNm/A]
