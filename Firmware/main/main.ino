@@ -1,8 +1,10 @@
 #include <ros.h>
 #include <QEC_1X_SPI.h>
-#include <geometry_msgs/PoseStamped.h>
+#include <custom_msgs/FootInputMsg.h>
+#include <custom_msgs/FootOutputMsg.h>
+/*#include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/WrenchStamped.h>
-#include <geometry_msgs/TwistStamped.h>
+#include <geometry_msgs/TwistStamped.h>*/
 #include <wiring_analog.h>
 #include <PinNames.h>
 #include <stm32f3xx_hal_dac.h>
@@ -74,8 +76,8 @@
 #define VELOCITY_PID_SAMPLE_R 100 //!  [us]
 
 //  void TaskComm(void *pvParameters );
-  void TaskStateMachine (void *pvParameters);
-
+/*  void TaskStateMachine (void *pvParameters);
+*/
 /**
 *   Tasks handled by the microcontroller
     - Pose retrieval, using encoders and softpots
@@ -178,23 +180,26 @@ PID PID_oriP(&orientationP, &torqueP, &referenceOriP, kp_OriP, ki_OriP, kd_OriP,
 
 
 ros::NodeHandle nh;
-geometry_msgs::PoseStamped pose_msg; //! 6DoF
+custom_msgs::FootOutputMsg output_msg;
+/*geometry_msgs::PoseStamped pose_msg; //! 6DoF
 geometry_msgs::WrenchStamped wrench_msg;
-geometry_msgs::TwistStamped twist_msg;
+geometry_msgs::TwistStamped twist_msg;*/
 
-void FI_subWrench(const geometry_msgs::Wrench& s_wrench_msg){ 
-    s_forceX = s_wrench_msg.force.x; 
-    s_forceY = s_wrench_msg.force.y; 
+void FI_subInput(const custom_msgs::FootInputMsg& input_msg){ 
+    s_forceX = input_msg.FxDes; 
+    s_forceY = input_msg.FyDes; 
     /* s_forceZ = s_wrench_msg.force.z;*/
-    s_torqueP = s_wrench_msg.torque.x;
+    s_torqueP = input_msg.TphiDes;
     /* s_torqueR = s_wrench_msg.torque.y;
     s_torqueY = s_wrench_msg.torque.z */
+    stateM=input_msg.stateDes;
 }
 
-ros::Subscriber<geometry_msgs::Wrench> s_wrench("/FI_setWrench/2",FI_subWrench);
-ros::Publisher p_pose("/FI_Pose/2", &pose_msg);
+ros::Subscriber<custom_msgs::FootInputMsg> s_input("/FI_Input/2",FI_subInput);
+ros::Publisher p_output("/FI_Output/2", &output_msg);
+/*ros::Publisher p_pose("/FI_Pose/2", &pose_msg);
 ros::Publisher p_wrench("/FI_Wrench/2", &wrench_msg);
-ros::Publisher p_twist("/FI_Twist/2", &twist_msg);
+ros::Publisher p_twist("/FI_Twist/2", &twist_msg);*/
 
 
 
@@ -215,10 +220,12 @@ void setup() {
   attachInterrupt(limitSwitchX, FI_posResetX, RISING);
   attachInterrupt(limitSwitchY, FI_posResetY, RISING);
   nh.initNode();
-  nh.advertise(p_pose);
-  nh.advertise(p_wrench);
+  nh.advertise(p_output);
+  /*nh.advertise(p_pose);*/
+  /*nh.advertise(p_wrench);*/
   /*nh.advertise(p_twist);*/
-  nh.subscribe(s_wrench);
+  /*nh.subscribe(s_wrench);*/
+  nh.subscribe(s_input);
 
       /*****ROS communication initialization*******/
   analogWriteResolution(12); //! Set resolution of the PWM's and DAC outputs for the ESCON Drivers.  
@@ -285,8 +292,9 @@ void loop() {
         }
 
     FI_setWrenchs(); //! Apply forces and torques
-    FI_pubMotion(); //! publish pose and twist in ROS*/
-    FI_pubWrench();
+    FI_pubOutput();
+   //FI_pubMotion(); //! publish pose and twist in ROS*/
+    //FI_pubWrench();
     nh.spinOnce();
 
  }
@@ -407,7 +415,7 @@ void FI_oriResetP(){
 * FI_pubPose() will broadcast a topic /FI_pose with the pose of the platform
 *******************************************************************************************/ 
 
-
+/*
 void FI_pubMotion(){
   pose_msg.header.frame_id=FRAME;
   pose_msg.header.stamp=nh.now();
@@ -419,17 +427,17 @@ void FI_pubMotion(){
   pose_msg.pose.orientation.z = orientationY;
   pose_msg.pose.orientation.w = 0.0f;
 
-  /*twist_msg.header.frame_id=FRAME;
+  twist_msg.header.frame_id=FRAME;
   twist_msg.header.stamp=nh.now();
   twist_msg.twist.linear.x = velocityX;
   twist_msg.twist.linear.y = velocityY;
   twist_msg.twist.linear.z = 0.0f;
   twist_msg.twist.angular.x = angVelocityP;
   twist_msg.twist.angular.y = 0.0f;
-  twist_msg.twist.angular.z = 0.0f;*/
+  twist_msg.twist.angular.z = 0.0f;
 
   p_pose.publish(&pose_msg);
-  /*p_twist.publish(&twist_msg);*/
+  /*p_twist.publish(&twist_msg);
   }
 
 
@@ -444,6 +452,30 @@ void FI_pubWrench(){
   wrench_msg.wrench.torque.z = 0.0f;
   p_wrench.publish(&wrench_msg);
   }
+*/
+
+void FI_pubOutput(){
+
+  output_msg.x = positionX;
+  output_msg.y = positionY;
+  /*output_msg.z = 0.0f;*/
+  output_msg.phi = orientationP;
+  output_msg.theta = orientationR;
+  output_msg.psi = orientationY;
+ /* pose_msg.pose.orientation.w = 0.0f;*/
+
+  output_msg.Fx = forceX;
+  output_msg.Fy = forceY;
+  /*output_msg.z = 0.0f;*/
+  output_msg.Tphi = torqueP;
+  output_msg.Ttheta = 0.0;
+  output_msg.Tpsi = 0.0;
+  output_msg.state=stateM;
+ /* pose_msg.pose.orientation.w = 0.0f;*/
+
+  p_output.publish(&output_msg);
+
+}
 
 
 /************************ Set of functions for Debugging *****************************
