@@ -280,10 +280,13 @@ void loop() {
       case centering:
           referencePosX=0.0, referencePosY=0.0, referenceOriP=0.0;
           kp_PosX=70, kp_PosY=70, kp_OriP=1000*PI/180.0F*0.001;
-          kd_PosX=0.1, kd_PosY=0.1, kd_OriP=0*PI/180.0F*0.001;
+          kd_PosX=0.2, kd_PosY=0.2, kd_OriP=0*PI/180.0F*0.001;
           FI_mPoseControl();
           if  (((positionX - referencePosX) < 0.010) && ((positionY - referencePosY) < 0.010) && ((orientationP - referenceOriP ) < 3) ){
-            stateM=normal_op;
+            static int idle = micros(); 
+            if (micros()-idle>1000){ //! After a second move to next state
+                stateM=normal_op;
+              };
           }
           break;
       case normal_op: 
