@@ -15,7 +15,7 @@
 //************* Workspace **** Left Platform***********************/ 
 
 #define FRAME "Left_Pedal"
-#define INTERFACE "2"  //! 1:Right 2:Left
+#define PLATFORM_ID 2  //! 1:Right 2:Left
 #define HOMING_FORCE_X -6.0
 #define HOMING_FORCE_Y 5.0 
 #define HOMING_OFFSET_X -X_LIMIT/2 //! Left
@@ -459,6 +459,8 @@ void FI_pubWrench(){
 
 void FI_pubOutput(){
 
+  output_msg.id=PLATFORM_ID;
+  output_msg.stamp=nh.now();
   output_msg.x = positionX;
   output_msg.y = positionY;
   /*output_msg.z = 0.0f;*/
@@ -466,18 +468,18 @@ void FI_pubOutput(){
   output_msg.theta = orientationR;
   output_msg.psi = orientationY;
  /* pose_msg.pose.orientation.w = 0.0f;*/
-
   output_msg.Fx = forceX;
   output_msg.Fy = forceY;
   /*output_msg.z = 0.0f;*/
   output_msg.Tphi = torqueP;
   output_msg.Ttheta = 0.0;
   output_msg.Tpsi = 0.0;
-  output_msg.state=stateM;
+  output_msg.vx= velocityX;
+  output_msg.vy= velocityY;
+  output_msg.wphi= angVelocityP;
+  output_msg.state = stateM;
  /* pose_msg.pose.orientation.w = 0.0f;*/
-
   p_output.publish(&output_msg);
-
 }
 
 
