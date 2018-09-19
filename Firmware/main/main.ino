@@ -10,61 +10,82 @@
 #include <stm32f3xx_hal_dac.h>
 #include <PID_v1.h>
 
-//! TO DO: change orientation from euler to quaternion to deliver a logical ROS messsage!!
+#define RIGHT_PLATFORM 1
+#define LEFT_PLATFORM 2
 
-//************* Workspace **** Left Platform***********************/ 
+#define PLATFORM_ID LEFT_PLATFORM  //! 1:Right 2:Left
 
-#define FRAME "Left_Pedal"
-#define PLATFORM_ID 2  //! 1:Right 2:Left
-#define HOMING_FORCE_X -6.0
-#define HOMING_FORCE_Y 5.0 
-#define HOMING_OFFSET_X -X_LIMIT/2 //! Left
-#define HOMING_OFFSET_Y Y_LIMIT/2 //! Left
-#define HOMING_OFFSET_P 0.0F //! Right
+#if(PLATFORM_ID==LEFT_PLATFORM)
+  #define HOMING_FORCE_X -6.0
+  #define HOMING_FORCE_Y 5.0 
+  #define HOMING_OFFSET_X -X_LIMIT/2 //! Left
+  #define HOMING_OFFSET_Y Y_LIMIT/2 //! Left
+  #define HOMING_OFFSET_P 0.0F //! Right
+
+  #define ENCODERSIGN1  -1 //! LEFT
+  #define ENCODERSIGN2  1 //! LEFT
+  #define ENCODERSIGN3  -1 //! LEFT
+
+  #define ENCODERSCALE1 X_LIMIT/15735.0F 
+  #define ENCODERSCALE2 Y_LIMIT/16986.0F
+  #define ENCODERSCALE3 P_LIMIT/4418.0F 
+
+  #define SOFTPOT_YAW_SCALE (90.0F/1090.0F)*(45.0/70.0)
+  #define SOFTPOT_YAW_BIAS 1251.0F - 301.0F
+
+  #define SOFTPOT_ROLL_SCALE 45.0F/522.0F
+  #define SOFTPOT_ROLL_BIAS 2174.0F - 92.0F + 8.0F
+
+  #define SOFTPOT_ROLL_SIGN -1
+  #define SOFTPOT_YAW_SIGN -1
+
+  #define CURRENT_K 42.43F //! K_i Faulhaber 3890024CR [mNm/A]
+
+  #define BELT_PULLEY_R 0.00915F //! Torque/Force
+  #define PITCH_REDUCTION_R 40.0/9.15F //! Pulley Big [mm] / Pulley Belt [mm]
+  #define C_CURRENT_MAX 5 //! 6 for Right and 5 for Left [A] 
+
+  #define MAX_TORQUE 0.212F //! [Nm] Left
+  #define MAX_RPM 6000
+#else
+  #define HOMING_FORCE_X 6.0 //! Right
+  #define HOMING_FORCE_Y 5.0 
+  #define HOMING_OFFSET_X X_LIMIT/2 //! Right
+  #define HOMING_OFFSET_Y Y_LIMIT/2 //! Right
+  #define HOMING_OFFSET_P 0.0F //! Right
+
+  #define ENCODERSIGN1  -1 //! RIGHT
+  #define ENCODERSIGN2  -1 //! RIGHT
+  #define ENCODERSIGN3  1 //! RIGHT
+
+  #define ENCODERSCALE1 (X_LIMIT/7360.0F)*(0.175/0.176474183798)
+  #define ENCODERSCALE2 (Y_LIMIT/7560.0F)*(0.1465/0.147585198283)
+  #define ENCODERSCALE3 P_LIMIT/2140.0F 
+
+  #define SOFTPOT_ROLL_SCALE 15.0/135.0F
+  #define SOFTPOT_ROLL_BIAS 2119.0F
+
+  #define SOFTPOT_YAW_SCALE 1.0F
+  #define SOFTPOT_YAW_BIAS 1875.0F
+
+  #define SOFTPOT_ROLL_SIGN 1
+  #define SOFTPOT_YAW_SIGN -1
+
+  #define CURRENT_K 30.2F //! K_i Maxon Motor RE40mm 148867 [mNm/A]
+
+  #define BELT_PULLEY_R 0.00915F //! Torque/Force
+  #define PITCH_REDUCTION_R 40.0/9.15F //! Pulley Big [mm] / Pulley Belt [mm]
+  #define C_CURRENT_MAX 6 //! A
+
+  #define MAX_TORQUE 0.187F //! [Nm] Right
+  #define MAX_RPM 12000
+#endif
 
 //#define HOMING_FORCE -5.0 //! Left 
 
 #define X_LIMIT 0.350F //! [m] 
 #define Y_LIMIT 0.293F //! [m]
 #define P_LIMIT 90.0F //! [deg]
-
-
-#define ENCODERSIGN1  -1 //! LEFT
-#define ENCODERSIGN2  1 //! LEFT
-#define ENCODERSIGN3  -1 //! LEFT
-
-/******************************************************************/
-
-#define ENCODERSCALE1 X_LIMIT/15735.0F 
-#define ENCODERSCALE2 Y_LIMIT/16986.0F
-#define ENCODERSCALE3 P_LIMIT/4418.0F 
-
-#define SOFTPOT_YAW_SCALE (90.0F/1090.0F)*(45.0/70.0)
-#define SOFTPOT_YAW_BIAS 1251.0F - 301.0F
-
-#define SOFTPOT_ROLL_SCALE 45.0F/522.0F
-#define SOFTPOT_ROLL_BIAS 2174.0F - 92.0F + 8.0F
-
-#define SOFTPOT_ROLL_SIGN -1
-#define SOFTPOT_YAW_SIGN -1
-
-/*#define STACK_SIZE 512*/
-
-/*#define COMM_FREQ 1000 //! [Hz] 1000Hz
-#define CONTROL_FREQ 10000 //! [hz] 10kHz*/
-
-#define CURRENT_K 42.43F //! K_i Faulhaber 3890024CR [mNm/A]
-//#define CURRENT_K 30.2F //! K_i Maxon Motor RE40mm 148867 [mNm/A]
-
-#define BELT_PULLEY_R 0.00915F //! Torque/Force
-#define PITCH_REDUCTION_R 40.0/9.15F //! Pulley Big [mm] / Pulley Belt [mm]
-#define C_CURRENT_MAX 5 //! 6 for Right and 5 for Left [A] 
-
-#define MAX_TORQUE 0.212F //! [Nm] Left
-#define MAX_RPM 6000
-//#define MAX_TORQUE 0.187F //! [Nm] Right
-//#define MAX_RPM 12000
-
 
 #define PI 3.14159265359F
 
@@ -74,16 +95,6 @@
 
 #define POSE_PID_SAMPLE_R 1000 //! [us]
 #define VELOCITY_PID_SAMPLE_R 100 //!  [us]
-
-//  void TaskComm(void *pvParameters );
-/*  void TaskStateMachine (void *pvParameters);
-*/
-/**
-*   Tasks handled by the microcontroller
-    - Pose retrieval, using encoders and softpots
-    - State Machine ( Homing, No Op, Impedance Control, Admittance Control, Force Rendering, etc.)
-    - Force retrieval from ROS 
-**/
 
 //*Initialize Wrench*
 double forceX=0.0F;
@@ -195,13 +206,13 @@ void FI_subInput(const custom_msgs::FootInputMsg& input_msg){
     stateM=input_msg.stateDes;
 }
 
-ros::Subscriber<custom_msgs::FootInputMsg> s_input("/FI_Input/2",FI_subInput);
-ros::Publisher p_output("/FI_Output/2", &output_msg);
-/*ros::Publisher p_pose("/FI_Pose/2", &pose_msg);
-ros::Publisher p_wrench("/FI_Wrench/2", &wrench_msg);
-ros::Publisher p_twist("/FI_Twist/2", &twist_msg);*/
-
-
+#if(PLATFORM_ID==LEFT_PLATFORM)
+  ros::Subscriber<custom_msgs::FootInputMsg> s_input("/FI_Input/Left",FI_subInput);
+  ros::Publisher p_output("/FI_Output/Left", &output_msg);
+#else
+  ros::Subscriber<custom_msgs::FootInputMsg> s_input("/FI_Input/Right",FI_subInput);
+  ros::Publisher p_output("/FI_Output/Right", &output_msg);
+#endif
 
 typedef enum 
 {
@@ -296,8 +307,6 @@ void loop() {
 
     FI_setWrenchs(); //! Apply forces and torques
     FI_pubOutput();
-   //FI_pubMotion(); //! publish pose and twist in ROS*/
-    //FI_pubWrench();
     nh.spinOnce();
 
  }
