@@ -48,8 +48,11 @@ void QEC_1X::QEC_config()
   digitalWrite(_cs,HIGH);
 }
 
-void QEC_1X::QEC_home()
+void QEC_1X::QEC_offset()
 
 {
-  _encoderOffset=_encoderCount;
+ //!_encoderOffset=_encoderCount; 
+ digitalWrite(_cs,LOW);
+ SPI.transfer(0x20);
+ digitalWrite(_cs,HIGH);
 }

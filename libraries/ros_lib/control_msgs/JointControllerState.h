@@ -35,8 +35,6 @@ namespace control_msgs
       _d_type d;
       typedef float _i_clamp_type;
       _i_clamp_type i_clamp;
-      typedef bool _antiwindup_type;
-      _antiwindup_type antiwindup;
 
     JointControllerState():
       header(),
@@ -49,8 +47,7 @@ namespace control_msgs
       p(0),
       i(0),
       d(0),
-      i_clamp(0),
-      antiwindup(0)
+      i_clamp(0)
     {
     }
 
@@ -68,13 +65,6 @@ namespace control_msgs
       offset += serializeAvrFloat64(outbuffer + offset, this->i);
       offset += serializeAvrFloat64(outbuffer + offset, this->d);
       offset += serializeAvrFloat64(outbuffer + offset, this->i_clamp);
-      union {
-        bool real;
-        uint8_t base;
-      } u_antiwindup;
-      u_antiwindup.real = this->antiwindup;
-      *(outbuffer + offset + 0) = (u_antiwindup.base >> (8 * 0)) & 0xFF;
-      offset += sizeof(this->antiwindup);
       return offset;
     }
 
@@ -92,19 +82,11 @@ namespace control_msgs
       offset += deserializeAvrFloat64(inbuffer + offset, &(this->i));
       offset += deserializeAvrFloat64(inbuffer + offset, &(this->d));
       offset += deserializeAvrFloat64(inbuffer + offset, &(this->i_clamp));
-      union {
-        bool real;
-        uint8_t base;
-      } u_antiwindup;
-      u_antiwindup.base = 0;
-      u_antiwindup.base |= ((uint8_t) (*(inbuffer + offset + 0))) << (8 * 0);
-      this->antiwindup = u_antiwindup.real;
-      offset += sizeof(this->antiwindup);
      return offset;
     }
 
     const char * getType(){ return "control_msgs/JointControllerState"; };
-    const char * getMD5(){ return "987ad85e4756f3aef7f1e5e7fe0595d1"; };
+    const char * getMD5(){ return "c0d034a7bf20aeb1c37f3eccb7992b69"; };
 
   };
 

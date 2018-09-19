@@ -5,7 +5,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include "ros/msg.h"
-#include "controller_manager_msgs/HardwareInterfaceResources.h"
 
 namespace controller_manager_msgs
 {
@@ -19,16 +18,19 @@ namespace controller_manager_msgs
       _state_type state;
       typedef const char* _type_type;
       _type_type type;
-      uint32_t claimed_resources_length;
-      typedef controller_manager_msgs::HardwareInterfaceResources _claimed_resources_type;
-      _claimed_resources_type st_claimed_resources;
-      _claimed_resources_type * claimed_resources;
+      typedef const char* _hardware_interface_type;
+      _hardware_interface_type hardware_interface;
+      uint32_t resources_length;
+      typedef char* _resources_type;
+      _resources_type st_resources;
+      _resources_type * resources;
 
     ControllerState():
       name(""),
       state(""),
       type(""),
-      claimed_resources_length(0), claimed_resources(NULL)
+      hardware_interface(""),
+      resources_length(0), resources(NULL)
     {
     }
 
@@ -50,13 +52,22 @@ namespace controller_manager_msgs
       offset += 4;
       memcpy(outbuffer + offset, this->type, length_type);
       offset += length_type;
-      *(outbuffer + offset + 0) = (this->claimed_resources_length >> (8 * 0)) & 0xFF;
-      *(outbuffer + offset + 1) = (this->claimed_resources_length >> (8 * 1)) & 0xFF;
-      *(outbuffer + offset + 2) = (this->claimed_resources_length >> (8 * 2)) & 0xFF;
-      *(outbuffer + offset + 3) = (this->claimed_resources_length >> (8 * 3)) & 0xFF;
-      offset += sizeof(this->claimed_resources_length);
-      for( uint32_t i = 0; i < claimed_resources_length; i++){
-      offset += this->claimed_resources[i].serialize(outbuffer + offset);
+      uint32_t length_hardware_interface = strlen(this->hardware_interface);
+      varToArr(outbuffer + offset, length_hardware_interface);
+      offset += 4;
+      memcpy(outbuffer + offset, this->hardware_interface, length_hardware_interface);
+      offset += length_hardware_interface;
+      *(outbuffer + offset + 0) = (this->resources_length >> (8 * 0)) & 0xFF;
+      *(outbuffer + offset + 1) = (this->resources_length >> (8 * 1)) & 0xFF;
+      *(outbuffer + offset + 2) = (this->resources_length >> (8 * 2)) & 0xFF;
+      *(outbuffer + offset + 3) = (this->resources_length >> (8 * 3)) & 0xFF;
+      offset += sizeof(this->resources_length);
+      for( uint32_t i = 0; i < resources_length; i++){
+      uint32_t length_resourcesi = strlen(this->resources[i]);
+      varToArr(outbuffer + offset, length_resourcesi);
+      offset += 4;
+      memcpy(outbuffer + offset, this->resources[i], length_resourcesi);
+      offset += length_resourcesi;
       }
       return offset;
     }
@@ -91,23 +102,40 @@ namespace controller_manager_msgs
       inbuffer[offset+length_type-1]=0;
       this->type = (char *)(inbuffer + offset-1);
       offset += length_type;
-      uint32_t claimed_resources_lengthT = ((uint32_t) (*(inbuffer + offset))); 
-      claimed_resources_lengthT |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1); 
-      claimed_resources_lengthT |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2); 
-      claimed_resources_lengthT |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3); 
-      offset += sizeof(this->claimed_resources_length);
-      if(claimed_resources_lengthT > claimed_resources_length)
-        this->claimed_resources = (controller_manager_msgs::HardwareInterfaceResources*)realloc(this->claimed_resources, claimed_resources_lengthT * sizeof(controller_manager_msgs::HardwareInterfaceResources));
-      claimed_resources_length = claimed_resources_lengthT;
-      for( uint32_t i = 0; i < claimed_resources_length; i++){
-      offset += this->st_claimed_resources.deserialize(inbuffer + offset);
-        memcpy( &(this->claimed_resources[i]), &(this->st_claimed_resources), sizeof(controller_manager_msgs::HardwareInterfaceResources));
+      uint32_t length_hardware_interface;
+      arrToVar(length_hardware_interface, (inbuffer + offset));
+      offset += 4;
+      for(unsigned int k= offset; k< offset+length_hardware_interface; ++k){
+          inbuffer[k-1]=inbuffer[k];
+      }
+      inbuffer[offset+length_hardware_interface-1]=0;
+      this->hardware_interface = (char *)(inbuffer + offset-1);
+      offset += length_hardware_interface;
+      uint32_t resources_lengthT = ((uint32_t) (*(inbuffer + offset))); 
+      resources_lengthT |= ((uint32_t) (*(inbuffer + offset + 1))) << (8 * 1); 
+      resources_lengthT |= ((uint32_t) (*(inbuffer + offset + 2))) << (8 * 2); 
+      resources_lengthT |= ((uint32_t) (*(inbuffer + offset + 3))) << (8 * 3); 
+      offset += sizeof(this->resources_length);
+      if(resources_lengthT > resources_length)
+        this->resources = (char**)realloc(this->resources, resources_lengthT * sizeof(char*));
+      resources_length = resources_lengthT;
+      for( uint32_t i = 0; i < resources_length; i++){
+      uint32_t length_st_resources;
+      arrToVar(length_st_resources, (inbuffer + offset));
+      offset += 4;
+      for(unsigned int k= offset; k< offset+length_st_resources; ++k){
+          inbuffer[k-1]=inbuffer[k];
+      }
+      inbuffer[offset+length_st_resources-1]=0;
+      this->st_resources = (char *)(inbuffer + offset-1);
+      offset += length_st_resources;
+        memcpy( &(this->resources[i]), &(this->st_resources), sizeof(char*));
       }
      return offset;
     }
 
     const char * getType(){ return "controller_manager_msgs/ControllerState"; };
-    const char * getMD5(){ return "aeb6b261d97793ab74099a3740245272"; };
+    const char * getMD5(){ return "cac963cc68f4f5836765c108de0fc446"; };
 
   };
 

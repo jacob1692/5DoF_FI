@@ -12,7 +12,7 @@ class QEC_1X
 		void QEC_read(void);
 		void QEC_getPose(void);
 		void QEC_config(void);
-		void QEC_home(void);
+		void QEC_offset(void);
 		
 	private:
 		long _encoderCount;
