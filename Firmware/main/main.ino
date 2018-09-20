@@ -2,9 +2,7 @@
 #include <QEC_1X_SPI.h>
 #include <custom_msgs/FootInputMsg.h>
 #include <custom_msgs/FootOutputMsg.h>
-/*#include <geometry_msgs/PoseStamped.h>
-#include <geometry_msgs/WrenchStamped.h>
-#include <geometry_msgs/TwistStamped.h>*/
+#include <LP_Filter.h>
 #include <wiring_analog.h>
 #include <PinNames.h>
 #include <stm32f3xx_hal_dac.h>
@@ -94,7 +92,7 @@
 #define ANG_VEL_LIMIT_P MAX_RPM*2*PI/60/PITCH_REDUCTION_R //! 143.78 [rad/s] 
 
 #define POSE_PID_SAMPLE_R 1000 //! [us]
-#define VELOCITY_PID_SAMPLE_R 100 //!  [us]
+/*#define VELOCITY_PID_SAMPLE_R 100 //!  [us]*/
 
 //*Initialize Wrench*
 double forceX=0.0F;
@@ -114,8 +112,19 @@ double orientationP;
 double orientationY = 0.0;
 double orientationR = 0.0;
 
+double velocityX, velocityY, angVelocityP, angVelocityY, angVelocityR;
 
-double velocityX, velocityY, angVelocityP;
+LP_Filter positionX_filter(0.01); //! (alpha) alpha in [0 - 1]  0-> No filter 1->filter_all
+LP_Filter positionY_filter(0.01);
+LP_Filter orientationP_filter(0.01);
+LP_Filter orientationR_filter(0.99);
+LP_Filter orientationY_filter(0.99);
+LP_Filter velocityX_filter(0.05);
+LP_Filter velocityY_filter(0.05);
+LP_Filter angVelocityP_filter(0.05);
+LP_Filter angVelocityR_filter(0.99);
+LP_Filter angVelocityY_filter(0.99);
+
 
 double positionX_old; 
 double positionY_old; 
@@ -185,9 +194,9 @@ double kp_PosX=100, ki_PosX=0, kd_PosX=2;
 double kp_PosY=100, ki_PosY=0, kd_PosY=2;
 double kp_OriP=2000*PI/180.0F*0.001, ki_OriP=0*PI/180.0F*0.001, kd_OriP=0*PI/180.0F*0.001; //! Nm/rad
 
-PID PID_posX(&positionX, &forceX, &referencePosX, kp_PosX, ki_PosX, kd_PosX, DIRECT); //! On measurement
-PID PID_posY(&positionY, &forceY, &referencePosY, kp_PosY, ki_PosY, kd_PosY, DIRECT);
-PID PID_oriP(&orientationP, &torqueP, &referenceOriP, kp_OriP, ki_OriP, kd_OriP, DIRECT);
+PID PID_posX(&positionX, &forceX, &referencePosX, kp_PosX, ki_PosX, kd_PosX, P_ON_M, DIRECT); //! On measurement
+PID PID_posY(&positionY, &forceY, &referencePosY, kp_PosY, ki_PosY, kd_PosY, P_ON_M, DIRECT);
+PID PID_oriP(&orientationP, &torqueP, &referenceOriP, kp_OriP, ki_OriP, kd_OriP, P_ON_M, DIRECT);
 
 
 ros::NodeHandle nh;
@@ -289,9 +298,10 @@ void loop() {
             }
           break;
       case centering:
+          axes_calib[0] = 0; axes_calib[1] = 0; axes_calib[2] = 0; //! To forget that I am homed
           referencePosX=0.0, referencePosY=0.0, referenceOriP=0.0;
-          kp_PosX=70, kp_PosY=70, kp_OriP=1000*PI/180.0F*0.001;
-          kd_PosX=0.2, kd_PosY=0.2, kd_OriP=0*PI/180.0F*0.001;
+          kp_PosX=50, kp_PosY=50, kp_OriP=1000*PI/180.0F*0.001;
+          kd_PosX=0.3, kd_PosY=0.3, kd_OriP=0*PI/180.0F*0.001;
           FI_mPoseControl();
           if  (((positionX - referencePosX) < 0.010) && ((positionY - referencePosY) < 0.010) && ((orientationP - referenceOriP ) < 3) ){
             static int idle = micros(); 
@@ -300,7 +310,8 @@ void loop() {
               };
           }
           break;
-      case normal_op: 
+      case normal_op:
+          axes_calib[0] = 0; axes_calib[1] = 0; axes_calib[2] = 0; //! To forget that I am homed
           FI_ImpUpdate();
           break;
         }
@@ -369,23 +380,40 @@ void FI_getPose(){ //! Get the pose of the platform using the values of the enco
    encoderY.QEC_getPose(); //! Motor for motion in Y
    encoderP.QEC_getPose(); //! Motor for motion in Pitch
    positionX=encoderX.outDimension + positionX_offset; 
-   positionY=encoderY.outDimension + positionY_offset; 
+   positionX=positionX_filter.Update(positionX);
+   positionY=encoderY.outDimension + positionY_offset;
+   positionY=positionY_filter.Update(positionY);
    orientationP=encoderP.outDimension + positionP_offset; //! Rad/s
-   orientationR=0.9*orientationR_old + 0.1 * SOFTPOT_ROLL_SIGN * SOFTPOT_ROLL_SCALE*(analogRead(oriRoll_pin) - SOFTPOT_ROLL_BIAS);
-   orientationY=0.9*orientationY_old + 0.1 * SOFTPOT_YAW_SIGN * SOFTPOT_YAW_SCALE*(analogRead(oriYaw_pin) - SOFTPOT_YAW_BIAS);
-   orientationR_old=orientationR;
-   orientationY_old=orientationY;
+   orientationP=orientationP_filter.Update(orientationP);
+   orientationR= SOFTPOT_ROLL_SIGN * SOFTPOT_ROLL_SCALE*(analogRead(oriRoll_pin) - SOFTPOT_ROLL_BIAS);
+   orientationR=orientationR_filter.Update(orientationR);
+   orientationY=SOFTPOT_YAW_SIGN * SOFTPOT_YAW_SCALE*(analogRead(oriYaw_pin) - SOFTPOT_YAW_BIAS);
+   orientationY=orientationY_filter.Update(orientationY);
 
+   /*orientationR=0.9*orientationR_old + 0.1 * SOFTPOT_ROLL_SIGN * SOFTPOT_ROLL_SCALE*(analogRead(oriRoll_pin) - SOFTPOT_ROLL_BIAS);
+   orientationY=0.9*orientationY_old + 0.1 * SOFTPOT_YAW_SIGN * SOFTPOT_YAW_SCALE*(analogRead(oriYaw_pin) - SOFTPOT_YAW_BIAS);*/
+   /*orientationR_old=orientationR;
+   orientationY_old=orientationY;
+*/
 }
 
 
 void FI_getTwist(){
-    velocityX= (positionX-positionX_old)/(POSE_PID_SAMPLE_R);
-    velocityY= (positionY-positionY_old)/(POSE_PID_SAMPLE_R);
-    angVelocityP = (orientationP-orientationP_old)/(POSE_PID_SAMPLE_R);
+    velocityX= (positionX-positionX_old)/(POSE_PID_SAMPLE_R*1e-6);
+    velocityX=velocityX_filter.Update(velocityX);
+    velocityY= (positionY-positionY_old)/(POSE_PID_SAMPLE_R*1e-6);
+    velocityY=velocityY_filter.Update(velocityY);
+    angVelocityP = (orientationP-orientationP_old)/(POSE_PID_SAMPLE_R*1e-6);
+    angVelocityP = angVelocityP_filter.Update(angVelocityP);
+    angVelocityR = (orientationR-orientationR_old)/(POSE_PID_SAMPLE_R*1e-6);
+    angVelocityR = angVelocityR_filter.Update(angVelocityR);
+    angVelocityY = (orientationY-orientationY_old)/(POSE_PID_SAMPLE_R*1e-6);
+    angVelocityY = angVelocityY_filter.Update(angVelocityY);
     positionX_old=positionX; 
     positionY_old=positionY; 
     orientationP_old=orientationP;
+    orientationR_old=orientationR;
+    orientationY_old=orientationY;
 } 
 
 
@@ -486,6 +514,8 @@ void FI_pubOutput(){
   output_msg.vx= velocityX;
   output_msg.vy= velocityY;
   output_msg.wphi= angVelocityP;
+  output_msg.wtheta= angVelocityR;
+  output_msg.wpsi= angVelocityY;
   output_msg.state = stateM;
  /* pose_msg.pose.orientation.w = 0.0f;*/
   p_output.publish(&output_msg);
@@ -497,7 +527,7 @@ void FI_pubOutput(){
 *******************************************************************************************/ 
 
 void FI_print() { //! For serial debugging
-  Serial.print("positionX = ");
+  Serial.print("PositionX = ");
   Serial.print(encoderX.outDimension,4);
   Serial.print(", ");
   
