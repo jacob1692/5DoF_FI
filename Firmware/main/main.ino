@@ -8,14 +8,27 @@
 #include <stm32f3xx_hal_dac.h>
 #include <PID_v1.h>
 
+
+#define X_LIMIT 0.350F //! [m] 
+#define Y_LIMIT 0.293F //! [m]
+#define P_LIMIT 90.0F //! [deg]
+#define PI 3.14159265359F
+
 #define RIGHT_PLATFORM 1
 #define LEFT_PLATFORM 2
 
-#define PLATFORM_ID LEFT_PLATFORM  //! 1:Right 2:Left
+#define PLATFORM_ID RIGHT_PLATFORM  //! 1:Right 2:Left
+
+#define VEL_LIMIT_X MAX_RPM*2*PI*BELT_PULLEY_R/60   //! 5.75 [m/s] 
+#define VEL_LIMIT_Y VEL_LIMIT_X
+#define ANG_VEL_LIMIT_P MAX_RPM*2*PI/60/PITCH_REDUCTION_R //! 143.78 [rad/s] 
+
+#define POSE_PID_SAMPLE_R 1000 //! [us]
+/*#define VELOCITY_PID_SAMPLE_R 100 //!  [us]*/
 
 #if(PLATFORM_ID==LEFT_PLATFORM)
   #define HOMING_FORCE_X -6.0
-  #define HOMING_FORCE_Y 5.0 
+  #define HOMING_FORCE_Y 6.0 
   #define HOMING_OFFSET_X -X_LIMIT/2 //! Left
   #define HOMING_OFFSET_Y Y_LIMIT/2 //! Left
   #define HOMING_OFFSET_P 0.0F //! Right
@@ -24,8 +37,8 @@
   #define ENCODERSIGN2  1 //! LEFT
   #define ENCODERSIGN3  -1 //! LEFT
 
-  #define ENCODERSCALE1 X_LIMIT/15735.0F 
-  #define ENCODERSCALE2 Y_LIMIT/16986.0F
+  #define ENCODERSCALE1 X_LIMIT/15735.0F*(350/353.937041) 
+  #define ENCODERSCALE2 Y_LIMIT/16986.0F*(293/273.32206)
   #define ENCODERSCALE3 P_LIMIT/4418.0F 
 
   #define SOFTPOT_YAW_SCALE (90.0F/1090.0F)*(45.0/70.0)
@@ -47,7 +60,7 @@
   #define MAX_RPM 6000
 #else
   #define HOMING_FORCE_X 6.0 //! Right
-  #define HOMING_FORCE_Y 5.0 
+  #define HOMING_FORCE_Y 6.0 
   #define HOMING_OFFSET_X X_LIMIT/2 //! Right
   #define HOMING_OFFSET_Y Y_LIMIT/2 //! Right
   #define HOMING_OFFSET_P 0.0F //! Right
@@ -56,7 +69,7 @@
   #define ENCODERSIGN2  -1 //! RIGHT
   #define ENCODERSIGN3  1 //! RIGHT
 
-  #define ENCODERSCALE1 (X_LIMIT/7360.0F)*(0.175/0.176474183798)
+  #define ENCODERSCALE1 (X_LIMIT/7360.0F)*0.93129358228F
   #define ENCODERSCALE2 (Y_LIMIT/7560.0F)*(0.1465/0.147585198283)
   #define ENCODERSCALE3 P_LIMIT/2140.0F 
 
@@ -81,18 +94,6 @@
 
 //#define HOMING_FORCE -5.0 //! Left 
 
-#define X_LIMIT 0.350F //! [m] 
-#define Y_LIMIT 0.293F //! [m]
-#define P_LIMIT 90.0F //! [deg]
-
-#define PI 3.14159265359F
-
-#define VEL_LIMIT_X MAX_RPM*2*PI*BELT_PULLEY_R/60   //! 5.75 [m/s] 
-#define VEL_LIMIT_Y VEL_LIMIT_X
-#define ANG_VEL_LIMIT_P MAX_RPM*2*PI/60/PITCH_REDUCTION_R //! 143.78 [rad/s] 
-
-#define POSE_PID_SAMPLE_R 1000 //! [us]
-/*#define VELOCITY_PID_SAMPLE_R 100 //!  [us]*/
 
 //*Initialize Wrench*
 double forceX=0.0F;
@@ -114,9 +115,9 @@ double orientationR = 0.0;
 
 double velocityX, velocityY, angVelocityP, angVelocityY, angVelocityR;
 
-LP_Filter positionX_filter(0.01); //! (alpha) alpha in [0 - 1]  0-> No filter 1->filter_all
-LP_Filter positionY_filter(0.01);
-LP_Filter orientationP_filter(0.01);
+LP_Filter positionX_filter(0.005); //! (alpha) alpha in [0 - 1]  0-> No filter 1->filter_all
+LP_Filter positionY_filter(0.005);
+LP_Filter orientationP_filter(0.005);
 LP_Filter orientationR_filter(0.99);
 LP_Filter orientationY_filter(0.99);
 LP_Filter velocityX_filter(0.05);
@@ -303,7 +304,7 @@ void loop() {
           kp_PosX=50, kp_PosY=50, kp_OriP=1000*PI/180.0F*0.001;
           kd_PosX=0.3, kd_PosY=0.3, kd_OriP=0*PI/180.0F*0.001;
           FI_mPoseControl();
-          if  (((positionX - referencePosX) < 0.010) && ((positionY - referencePosY) < 0.010) && ((orientationP - referenceOriP ) < 3) ){
+          if  (((positionX - referencePosX) < 0.030) && ((positionY - referencePosY) < 0.030) && ((orientationP - referenceOriP ) < 3) ){
             static int idle = micros(); 
             if (micros()-idle>1000){ //! After a second move to next state
                 stateM=normal_op;
