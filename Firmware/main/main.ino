@@ -29,9 +29,10 @@
 #if(PLATFORM_ID==LEFT_PLATFORM)
   #define HOMING_FORCE_X -6.0
   #define HOMING_FORCE_Y 6.0 
+  #define HOMING_TORQUE_P -0.3
   #define HOMING_OFFSET_X -X_LIMIT/2 //! Left
   #define HOMING_OFFSET_Y Y_LIMIT/2 //! Left
-  #define HOMING_OFFSET_P 0.0F //! Right
+  #define HOMING_OFFSET_P -77.0 //! [deg]
 
   #define ENCODERSIGN1  -1 //! LEFT
   #define ENCODERSIGN2  1 //! LEFT
@@ -39,7 +40,7 @@
 
   #define ENCODERSCALE1 X_LIMIT/15735.0F*(350/353.937041) 
   #define ENCODERSCALE2 Y_LIMIT/16986.0F*(293/273.32206)
-  #define ENCODERSCALE3 P_LIMIT/4418.0F 
+  #define ENCODERSCALE3 P_LIMIT/4256.0F //!4476
 
   #define SOFTPOT_YAW_SCALE (90.0F/1090.0F)*(45.0/70.0)
   #define SOFTPOT_YAW_BIAS 1251.0F - 301.0F
@@ -61,9 +62,10 @@
 #else
   #define HOMING_FORCE_X 6.0 //! Right
   #define HOMING_FORCE_Y 6.0 
+  #define HOMING_TORQUE_P -0.3
   #define HOMING_OFFSET_X X_LIMIT/2 //! Right
   #define HOMING_OFFSET_Y Y_LIMIT/2 //! Right
-  #define HOMING_OFFSET_P 0.0F //! Right
+  #define HOMING_OFFSET_P -77.0 //! [deg]
 
   #define ENCODERSIGN1  -1 //! RIGHT
   #define ENCODERSIGN2  -1 //! RIGHT
@@ -71,7 +73,7 @@
 
   #define ENCODERSCALE1 (X_LIMIT/7360.0F)*0.93129358228F
   #define ENCODERSCALE2 (Y_LIMIT/7560.0F)*(0.1465/0.147585198283)
-  #define ENCODERSCALE3 P_LIMIT/2140.0F 
+  #define ENCODERSCALE3 P_LIMIT/2128.0F 
 
   #define SOFTPOT_ROLL_SCALE 15.0/135.0F
   #define SOFTPOT_ROLL_BIAS 2119.0F
@@ -104,12 +106,12 @@ double s_forceX=0.0F;
 double s_forceY=0.0F;
 double s_torqueP=0.0F;
 
-double positionX; 
-double positionY; 
+double positionX = 0.0; 
+double positionY = 0.0; 
 double positionX_offset=0.0;
 double positionY_offset=0.0;
-double positionP_offset=0.0;
-double orientationP; 
+double orientationP_offset=0.0;
+double orientationP = 0.0; 
 double orientationY = 0.0;
 double orientationR = 0.0;
 
@@ -145,6 +147,7 @@ int oriYaw_pin = A1;
 
 int limitSwitchX = D8; // VERIFY THIS NUMBER!!!
 int limitSwitchY = D7;
+int limitSwitchP = D2 ;
 
 int motorX_pin = D3; //! 
 int motorY_pin = D4; //! D4 
@@ -238,8 +241,10 @@ void setup() {
 
   pinMode(limitSwitchX, INPUT);
   pinMode(limitSwitchY, INPUT);
+  pinMode(limitSwitchP, INPUT);
   attachInterrupt(limitSwitchX, FI_posResetX, RISING);
   attachInterrupt(limitSwitchY, FI_posResetY, RISING);
+  attachInterrupt(limitSwitchP, FI_oriResetP, RISING);
   nh.initNode();
   nh.advertise(p_output);
   /*nh.advertise(p_pose);*/
@@ -287,12 +292,12 @@ void loop() {
       case homing: //! The robot tries to go outside the workspace until it meets with the limits switches
           forceY= HOMING_FORCE_Y; //![N]
           forceX= HOMING_FORCE_X; //! 
-          torqueP = 0;  //! [Nm]
-          FI_oriResetP(); //! resembling the limit switch
+          torqueP = HOMING_TORQUE_P;  //! [Nm]
+          //!FI_oriResetP(); //! resembling the limit switch
           if ( ( axes_calib[0]==1 ) && ( axes_calib[1]==1 ) && ( axes_calib[2]==1 )){
               static int idle = micros(); 
               forceY= 0, forceX= 0, torqueP = 0;  //! [Nm]              
-              if (micros()-idle>1000){ //! After a second move to next state
+              if ((micros()-idle)>700000){ //! After 1/2 second move to next state
                 stateM=centering;
               }
               
@@ -301,12 +306,13 @@ void loop() {
       case centering:
           axes_calib[0] = 0; axes_calib[1] = 0; axes_calib[2] = 0; //! To forget that I am homed
           referencePosX=0.0, referencePosY=0.0, referenceOriP=0.0;
-          kp_PosX=50, kp_PosY=50, kp_OriP=1000*PI/180.0F*0.001;
-          kd_PosX=0.3, kd_PosY=0.3, kd_OriP=0*PI/180.0F*0.001;
+          kp_PosX=50, kp_PosY=60, kp_OriP=1000*PI/180.0F*0.001;
+          kd_PosX=0.3, kd_PosY=0.3, kd_OriP=3*PI/180.0F*0.001;
+          ki_PosX=5, ki_PosY=10, ki_OriP=10*PI/180.0F*0.001;
           FI_mPoseControl();
           if  (((positionX - referencePosX) < 0.030) && ((positionY - referencePosY) < 0.030) && ((orientationP - referenceOriP ) < 3) ){
             static int idle = micros(); 
-            if (micros()-idle>1000){ //! After a second move to next state
+            if ((micros()-idle)>500000){ //! After a second move to next state
                 stateM=normal_op;
               };
           }
@@ -384,7 +390,7 @@ void FI_getPose(){ //! Get the pose of the platform using the values of the enco
    positionX=positionX_filter.Update(positionX);
    positionY=encoderY.outDimension + positionY_offset;
    positionY=positionY_filter.Update(positionY);
-   orientationP=encoderP.outDimension + positionP_offset; //! Rad/s
+   orientationP=encoderP.outDimension + orientationP_offset; //! Rad/s
    orientationP=orientationP_filter.Update(orientationP);
    orientationR= SOFTPOT_ROLL_SIGN * SOFTPOT_ROLL_SCALE*(analogRead(oriRoll_pin) - SOFTPOT_ROLL_BIAS);
    orientationR=orientationR_filter.Update(orientationR);
@@ -447,7 +453,7 @@ void FI_posResetY(){
 void FI_oriResetP(){ 
    if (axes_calib[2]==0){
     FI_encBias(encoderP);
-    positionP_offset=HOMING_OFFSET_P;
+    orientationP_offset=HOMING_OFFSET_P;
     axes_calib[2]=1;
   }
 }
