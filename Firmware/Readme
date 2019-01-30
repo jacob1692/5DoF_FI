@@ -10,7 +10,7 @@ Readme.
 
 5. Launch a Ros Master, if not yet present: $ roscore
 
-6. Run the node of rosserial, specifying a baud rate of 115200 and the port device (ttyACM0) $rosrun rosserial_python serial_node.py _baud:=115200 _port:=/dev/ttyACM0
+6. Run the node of rosserial, specifying a baud rate of 115200 and the port device (ttyACM0) $rosrun rosserial_python serial_node.py _baud:=230400 _port:=/dev/ttyACM0
 
 
  
