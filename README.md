@@ -3,6 +3,11 @@ Firmware of the STM32 Nucleof303k8
 
 1. Copy the folders of libraries from the repository to ~/Arduino/libraries
 
+2. Copy and merge the folder .arduino15 to home. -> This will copy the library packages of the STM32 in the arduino database. 
+
+
+(Optional)
+
 2. Add the supported boards to the arduino IDE, by going to File->Preferences and in the field "Additional Boards URL" enter: https://github.com/stm32duino/BoardManagerFiles/raw/master/STM32/package_stm_index.json
 
 3. Go to tools->board:"XX"->Boards Manager, look for STM32 Cores by ST-Microelectronics ( we are using version 1.3.0)
