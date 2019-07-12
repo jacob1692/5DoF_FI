@@ -137,9 +137,9 @@ int CS1 = D6; //! CS4 -> Lateral
 int CS2 = D9; //! CS5  -> Dorsi/Plantar Flexion
 int CS3 = D10; //! CS6 -> Flexion/Extension of the Leg
  
-int CS1 = D6; //! CS4 -> Lateral 
-int CS2 = D9; //! CS5  -> Dorsi/Plantar Flexion
-int CS3 = D10; //! CS6 -> Flexion/Extension of the Leg
+int CS4 = A1; //! CS4 -> Lateral 
+int CS5 = A2; //! CS5  -> Dorsi/Plantar Flexion
+
 
 
 
