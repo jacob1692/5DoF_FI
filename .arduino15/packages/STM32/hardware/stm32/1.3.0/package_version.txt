@@ -1,4 +1,0 @@
-commit 4372bd9285372ec1cf49e170afd3b38008f879bb
-Author: Frederic.Pillon <frederic.pillon@st.com>
-
-    [NUCLEO-L496ZG] Fix analog first pin

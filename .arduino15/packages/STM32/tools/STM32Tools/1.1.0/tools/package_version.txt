@@ -1,4 +1,0 @@
-commit b6dc631379a05f29c3c5f356f369a68e516a94ff
-Author: Frederic.Pillon <frederic.pillon@st.com>
-
-    [genpinmap] sort TIM by numerical order
