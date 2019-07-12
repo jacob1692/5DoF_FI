@@ -1,4 +1,4 @@
-#include <QEC_1X_SPI.h>
+#include "QEC_1X_SPI.h"
 
 QEC_1X::QEC_1X(int CS)
 {
@@ -48,11 +48,11 @@ void QEC_1X::QEC_config()
   digitalWrite(_cs,HIGH);
 }
 
-void QEC_1X::QEC_offset()
+void QEC_1X::QEC_offset() //To restart the counter.
 
 {
  //!_encoderOffset=_encoderCount; 
  digitalWrite(_cs,LOW);
- SPI.transfer(0x20);
+ SPI.transfer(0x20); /// Clear Counter
  digitalWrite(_cs,HIGH);
 }
